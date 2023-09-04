@@ -1,2 +1,2 @@
-# joolif
-Network Device Driver Jool
+See [`start.sh`](start.sh).
+
