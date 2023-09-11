@@ -301,6 +301,43 @@ copy_fail:
 }
 
 /**
+ * Use this when header and payload both changed completely, so we gotta just
+ * trash the old checksum and start anew.
+ */
+void compute_icmp4_csum(struct sk_buff *skb)
+{
+	struct icmphdr *hdr = icmp_hdr(skb);
+
+	/*
+	 * This function only gets called for ICMP error checksums, so
+	 * skb_datagram_len() is fine.
+	 */
+	hdr->checksum = 0;
+	hdr->checksum = csum_fold(skb_checksum(skb, skb_transport_offset(skb),
+			skb_datagram_len(skb), 0));
+	skb->ip_summed = CHECKSUM_NONE;
+}
+
+void compute_icmp6_csum(struct sk_buff *out)
+{
+	struct ipv6hdr *out_ip6 = ipv6_hdr(out);
+	struct icmp6hdr *out_icmp = icmp6_hdr(out);
+	__wsum csum;
+
+	/*
+	 * This function only gets called for ICMP error checksums, so
+	 * pkt_datagram_len() is fine.
+	 */
+	out_icmp->icmp6_cksum = 0;
+	csum = skb_checksum(out, skb_transport_offset(out),
+			skb_datagram_len(out), 0);
+	out_icmp->icmp6_cksum = csum_ipv6_magic(&out_ip6->saddr,
+			&out_ip6->daddr, skb_datagram_len(out), IPPROTO_ICMPV6,
+			csum);
+	out->ip_summed = CHECKSUM_NONE;
+}
+
+/**
  * "Handle the ICMP Extension" in this context means
  *
  * - Make sure it aligns in accordance with the target protocol's ICMP length
@@ -406,4 +443,6 @@ void skb_cleanup_copy(struct sk_buff *skb)
 #else
 	skb->tstamp = 0;
 #endif
+
+//	skb_dst_drop(skb);
 }

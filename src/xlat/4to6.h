@@ -10,5 +10,6 @@ int ttp46_ipv6_external(struct xlation *state);
 int ttp46_tcp(struct xlation *state);
 int ttp46_udp(struct xlation *state);
 int ttp46_icmp(struct xlation *state);
+void ttp46_icmp_err(struct xlation *state);
 
 #endif /* SRC_MOD_COMMON_RFC7915_4TO6_H_ */

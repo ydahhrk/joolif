@@ -1,6 +1,8 @@
 #include "4to6.h"
 
 #include <net/addrconf.h>
+#include <net/ip.h>
+#include <net/icmp.h>
 #include <net/ip6_checksum.h>
 
 #include "address.h"
@@ -396,7 +398,7 @@ int ttp46_alloc_skb(struct xlation *state)
 	unsigned int mpl;
 
 	in = &state->in;
-	nexthop_mtu = 1500; /* FIXME get from outside */
+	nexthop_mtu = state->dev->mtu;
 	mpl = min(nexthop_mtu, state->cfg->lowest_ipv6_mtu);
 	if (mpl < 1280)
 		return drop(state);
@@ -415,7 +417,8 @@ int ttp46_alloc_skb(struct xlation *state)
 		 * Fragment header will only be included if already fragmented.
 		 */
 		if (fragment_exceeds_mtu46(in, nexthop_mtu)) {
-			return drop_icmp(state, ICMPERR_FRAG_NEEDED,
+			return drop_icmp(state, ICMP_DEST_UNREACH,
+					ICMP_FRAG_NEEDED,
 					max(576u, nexthop_mtu - 20u));
 		} else {
 			return allocate_fast(state, in->skb->ignore_df,
@@ -550,7 +553,8 @@ static int ttcp46_ipv6_common(struct xlation *state)
 	if (pkt_is_outer(in)) {
 		if (hdr4->ttl <= 1) {
 			log_debug("Packet's TTL <= 1.");
-			return drop_icmp(state, ICMPERR_TTL, 0);
+			return drop_icmp(state, ICMP_TIME_EXCEEDED,
+					ICMP_EXC_TTL, 0);
 		}
 		hdr6->hop_limit = hdr4->ttl - 1;
 	} else {
@@ -585,7 +589,7 @@ int ttp46_ipv6_external(struct xlation *state)
 
 	if (pkt_is_outer(in) && has_unexpired_src_route(pkt_ip4_hdr(in))) {
 		log_debug("Packet has an unexpired source route.");
-		return drop_icmp(state, ICMPERR_SRC_ROUTE, 0);
+		return drop_icmp(state, ICMP_DEST_UNREACH, ICMP_SR_FAILED, 0);
 	}
 
 	hdr6->nexthdr = state->out.l4_proto;
@@ -808,25 +812,6 @@ static void update_icmp6_csum(struct xlation *state)
 			IPPROTO_ICMPV6, csum);
 }
 
-static void compute_icmp6_csum(struct packet *out)
-{
-	struct ipv6hdr *out_ip6 = pkt_ip6_hdr(out);
-	struct icmp6hdr *out_icmp = pkt_icmp6_hdr(out);
-	__wsum csum;
-
-	/*
-	 * This function only gets called for ICMP error checksums, so
-	 * pkt_datagram_len() is fine.
-	 */
-	out_icmp->icmp6_cksum = 0;
-	csum = skb_checksum(out->skb, skb_transport_offset(out->skb),
-			pkt_datagram_len(out), 0);
-	out_icmp->icmp6_cksum = csum_ipv6_magic(&out_ip6->saddr,
-			&out_ip6->daddr, pkt_datagram_len(out), IPPROTO_ICMPV6,
-			csum);
-	out->skb->ip_summed = CHECKSUM_NONE;
-}
-
 static int validate_icmp4_csum(struct xlation *state)
 {
 	struct packet *in = &state->in;
@@ -949,7 +934,7 @@ static int post_icmp6error(struct xlation *state)
 	if (error)
 		return error;
 
-	compute_icmp6_csum(&state->out);
+	compute_icmp6_csum(state->out.skb);
 	return 0;
 }
 
@@ -995,22 +980,22 @@ int ttp46_icmp(struct xlation *state)
 		case ICMP_HOST_UNR_TOS:
 			outhdr->icmp6_type = ICMPV6_DEST_UNREACH;
 			outhdr->icmp6_code = ICMPV6_NOROUTE;
-			return 0;
+			break;
 
 		case ICMP_PROT_UNREACH:
 			outhdr->icmp6_type = ICMPV6_PARAMPROB;
 			outhdr->icmp6_code = ICMPV6_UNK_NEXTHDR;
-			return 0;
+			break;
 
 		case ICMP_PORT_UNREACH:
 			outhdr->icmp6_type = ICMPV6_DEST_UNREACH;
 			outhdr->icmp6_code = ICMPV6_PORT_UNREACH;
-			return 0;
+			break;
 
 		case ICMP_FRAG_NEEDED:
 			outhdr->icmp6_type = ICMPV6_PKT_TOOBIG;
 			outhdr->icmp6_code = 0;
-			return 0;
+			break;
 
 		case ICMP_NET_ANO:
 		case ICMP_HOST_ANO:
@@ -1018,7 +1003,7 @@ int ttp46_icmp(struct xlation *state)
 		case ICMP_PREC_CUTOFF:
 			outhdr->icmp6_type = ICMPV6_DEST_UNREACH;
 			outhdr->icmp6_code = ICMPV6_ADM_PROHIBITED;
-			return 0;
+			break;
 		default:
 			goto fail;
 		}
@@ -1040,7 +1025,7 @@ int ttp46_icmp(struct xlation *state)
 		case ICMP_PTR_INDICATES_ERROR:
 		case ICMP_BAD_LENGTH:
 			outhdr->icmp6_code = ICMPV6_HDR_FIELD;
-			return 0;
+			break;
 		default:
 			goto fail;
 		}
@@ -1202,7 +1187,7 @@ int ttp46_udp(struct xlation *state)
 		if (can_compute_csum(state))
 			goto partial;
 
-		return drop_icmp(state, ICMPERR_FILTER, 0);
+		return drop_icmp(state, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED, 0);
 
 	} else if (in->skb->ip_summed != CHECKSUM_PARTIAL) {
 		memcpy(&udp_copy, udp_in, sizeof(*udp_in));
@@ -1230,4 +1215,78 @@ partial:
 			&pkt_ip6_hdr(out)->daddr, 0);
 	partialize_skb(out->skb, offsetof(struct udphdr, check));
 	return 0;
+}
+
+/*
+ * TODO Maaaaaaaaybe replace this with icmp_send().
+ * I'm afraid of using such a high level function from here, tbh.
+ */
+void ttp46_icmp_err(struct xlation *state)
+{
+	struct sk_buff *in = state->in.skb;
+	struct sk_buff *out;
+	struct iphdr *iph;
+	struct icmphdr *ich;
+	bool allow;
+	unsigned int len;
+
+	if (in->pkt_type != PACKET_HOST)
+		return;
+	if (ip_hdr(in)->frag_off & htons(IP_OFFSET))
+		return;
+	if (pkt_is_icmp4_error(&state->in))
+		return;
+
+	local_bh_disable();
+	allow = icmp_global_allow();
+	local_bh_enable();
+	if (!allow)
+		return;
+
+	len = in->len;
+	if (len > 576u)
+		len = 576u;
+
+	out = netdev_alloc_skb(state->dev, LL_MAX_HEADER + len);
+	if (!out)
+		return;
+
+	skb_reserve(out, LL_MAX_HEADER);
+	skb_put(out, len);
+	skb_reset_mac_header(out);
+	skb_reset_network_header(out);
+	skb_set_transport_header(out, sizeof(struct iphdr));
+
+	iph = ip_hdr(out);
+	iph->version = 4;
+	iph->ihl = 5;
+	iph->tos = 0;
+	iph->tot_len = htons(len);
+	iph->id = 0;
+	iph->frag_off = build_ipv4_frag_off_field(1, 0, 0);
+	iph->ttl = 255;
+	iph->protocol = IPPROTO_ICMP;
+	iph->saddr = htonl(INADDR_DUMMY); /* TODO variabilize */
+//	iph->saddr = htonl(0xc6336401); /* Graybox tests version */
+	iph->daddr = ip_hdr(in)->saddr;
+	iph->check = 0;
+	iph->check = ip_fast_csum(iph, iph->ihl);
+
+	ich = icmp_hdr(out);
+	ich->type = state->result.type;
+	ich->code = state->result.code;
+	/* checksum later */
+	ich->icmp4_unused = htonl(state->result.info);
+
+	if (skb_copy_bits(in, 0, ich + 1, len - sizeof(*iph) - sizeof(*ich))) {
+		dev_kfree_skb(out);
+		return;
+	}
+
+	compute_icmp4_csum(out);
+	out->mark = IP4_REPLY_MARK(state->ns, in->mark);
+	out->protocol = htons(ETH_P_IP);
+
+	memset(&state->out, 0, sizeof(state->out));
+	state->out.skb = out;
 }

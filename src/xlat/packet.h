@@ -277,6 +277,11 @@ static inline bool pkt_is_outer(const struct packet *pkt)
 	return !pkt_is_inner(pkt);
 }
 
+static inline unsigned int skb_l3hdr_len(const struct sk_buff *skb)
+{
+	return skb_transport_header(skb) - skb_network_header(skb);
+}
+
 /**
  * Returns the length of @pkt's first set of layer-3 headers (including options
  * and extension headers).
@@ -289,7 +294,7 @@ static inline bool pkt_is_outer(const struct packet *pkt)
  */
 static inline unsigned int pkt_l3hdr_len(const struct packet *pkt)
 {
-	return skb_transport_header(pkt->skb) - skb_network_header(pkt->skb);
+	return skb_l3hdr_len(pkt->skb);
 }
 
 /**
@@ -321,6 +326,11 @@ static inline unsigned int pkt_hdrs_len(const struct packet *pkt)
 	return pkt->payload_offset;
 }
 
+static inline unsigned int skb_datagram_len(const struct sk_buff *skb)
+{
+	return skb->len - skb_l3hdr_len(skb);
+}
+
 /**
  * Returns the length of @pkt's layer-3 payload.
  * Includes headroom payload, frag_list payload and frags payload.
@@ -334,7 +344,7 @@ static inline unsigned int pkt_hdrs_len(const struct packet *pkt)
  */
 static inline unsigned int pkt_datagram_len(const struct packet *pkt)
 {
-	return pkt->skb->len - pkt_l3hdr_len(pkt);
+	return skb_datagram_len(pkt->skb);
 }
 
 static inline bool pkt_is_icmp6_error(const struct packet *pkt)

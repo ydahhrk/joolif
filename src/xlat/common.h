@@ -15,6 +15,7 @@
 typedef int (*pkt_init_fn)(struct xlation *, struct sk_buff *);
 typedef int (*skb_alloc_fn)(struct xlation *);
 typedef int (*hdr_xlat_fn)(struct xlation *);
+typedef void (*icmp_error)(struct xlation *);
 
 struct translation_steps {
 	pkt_init_fn pkt_init;
@@ -45,6 +46,8 @@ struct translation_steps {
 	hdr_xlat_fn xlat_tcp;
 	hdr_xlat_fn xlat_udp;
 	hdr_xlat_fn xlat_icmp;
+
+	icmp_error icmp_err;
 };
 
 void partialize_skb(struct sk_buff *skb, __u16 csum_offset);
@@ -91,6 +94,8 @@ struct icmpext_args {
 	bool force_remove_ie; /* Force removal of ICMP Extension? */
 };
 
+void compute_icmp4_csum(struct sk_buff *skb);
+void compute_icmp6_csum(struct sk_buff *skb);
 int handle_icmp_extension(struct xlation *state, struct icmpext_args *args);
 
 void skb_cleanup_copy(struct sk_buff *skb);

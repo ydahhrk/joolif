@@ -7,9 +7,11 @@ int drop(struct xlation *state)
 	return -EINVAL;
 }
 
-int drop_icmp(struct xlation *state, enum icmp_errcode icmp, __u32 info)
+int drop_icmp(struct xlation *state, __u8 type, __u8 code, __u32 info)
 {
-	state->result.icmp = icmp;
+	state->result.set = true;
+	state->result.type = type;
+	state->result.code = code;
 	state->result.info = info;
 	return drop(state);
 }

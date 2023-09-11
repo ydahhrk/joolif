@@ -4,6 +4,7 @@
 #include <net/ip6_checksum.h>
 #include <net/udp.h>
 #include <net/tcp.h>
+#include <net/addrconf.h>
 
 #include "address.h"
 #include "common.h"
@@ -89,12 +90,12 @@ static int validate_size(struct xlation *state)
 {
 	unsigned int nexthop_mtu;
 
-	nexthop_mtu = 1500; /* FIXME */
+	nexthop_mtu = state->dev->mtu;
 	switch (fragment_exceeds_mtu64(&state->in, nexthop_mtu)) {
 	case 0:
 		return 0;
 	case 1:
-		return drop_icmp(state, ICMPERR_FRAG_NEEDED,
+		return drop_icmp(state, ICMPV6_PKT_TOOBIG, 0,
 				max(1280u, nexthop_mtu + 20u));
 	case 2:
 		return drop(state);
@@ -183,6 +184,9 @@ int ttp64_alloc_skb(struct xlation *state)
 
 /**
  * One-liner for creating the IPv4 header's Identification field.
+ *
+ * Note, because of __ip_select_ident(), the following fields need to be already
+ * set: hdr4->saddr, hdr4->daddr, hdr4->protocol.
  */
 static void generate_ipv4_id(struct xlation const *state, struct iphdr *hdr4,
     struct frag_hdr const *hdr_frag)
@@ -291,11 +295,13 @@ int ttp64_ipv4_external(struct xlation *state)
 
 	if (hdr6->hop_limit <= 1) {
 		log_debug("Packet's hop limit <= 1.");
-		return drop_icmp(state, ICMPERR_TTL, 0);
+		return drop_icmp(state, ICMPV6_TIME_EXCEED, ICMPV6_EXC_HOPLIMIT,
+				0);
 	}
 	if (has_nonzero_segments_left(hdr6, &nonzero_location)) {
 		log_debug("Packet's segments left field is nonzero.");
-		return drop_icmp(state, ICMPERR_HDR_FIELD, nonzero_location);
+		return drop_icmp(state, ICMPV6_PARAMPROB, ICMPV6_HDR_FIELD,
+				nonzero_location);
 	}
 
 	hdr4 = pkt_ip4_hdr(&state->out);
@@ -305,7 +311,7 @@ int ttp64_ipv4_external(struct xlation *state)
 	hdr4->ihl = 5;
 	hdr4->tos = xlat_tos(state->cfg, hdr6);
 	hdr4->tot_len = cpu_to_be16(state->out.skb->len);
-	generate_ipv4_id(state, hdr4, hdr_frag);
+	/* id is set later; please scroll down. */
 	hdr4->frag_off = xlat_frag_off(hdr_frag, state);
 	hdr4->ttl = hdr6->hop_limit - 1;
 	hdr4->protocol = state->out.l4_proto;
@@ -314,6 +320,8 @@ int ttp64_ipv4_external(struct xlation *state)
 	error = siit64_addrs(state, &hdr4->saddr, &hdr4->daddr);
 	if (error)
 		return error;
+
+	generate_ipv4_id(state, hdr4, hdr_frag);
 
 	hdr4->check = 0;
 	hdr4->check = ip_fast_csum(hdr4, hdr4->ihl);
@@ -338,7 +346,6 @@ static int ttp64_ipv4_internal(struct xlation *state)
 	hdr4->tos = xlat_tos(state->cfg, hdr6);
 	hdr4->tot_len = cpu_to_be16(get_tot_len_ipv6(in->skb) - pkt_hdrs_len(in)
 			+ pkt_hdrs_len(out));
-	generate_ipv4_id(state, hdr4, hdr_frag);
 	hdr4->frag_off = xlat_frag_off(hdr_frag, state);
 	hdr4->ttl = hdr6->hop_limit;
 	hdr4->protocol = xlat_proto(hdr6);
@@ -346,6 +353,8 @@ static int ttp64_ipv4_internal(struct xlation *state)
 	error = siit64_addrs(state, &hdr4->saddr, &hdr4->daddr);
 	if (error)
 		return error;
+
+	generate_ipv4_id(state, hdr4, hdr_frag);
 
 	hdr4->check = 0;
 	hdr4->check = ip_fast_csum(hdr4, hdr4->ihl);
@@ -511,25 +520,6 @@ static void update_icmp4_csum(struct xlation const *state)
 	out_icmp->checksum = csum_fold(csum);
 }
 
-/**
- * Use this when header and payload both changed completely, so we gotta just
- * trash the old checksum and start anew.
- */
-static void compute_icmp4_csum(struct packet const *out)
-{
-	struct icmphdr *hdr = pkt_icmp4_hdr(out);
-
-	/*
-	 * This function only gets called for ICMP error checksums, so
-	 * pkt_datagram_len() is fine.
-	 */
-	hdr->checksum = 0;
-	hdr->checksum = csum_fold(skb_checksum(out->skb,
-			skb_transport_offset(out->skb),
-			pkt_datagram_len(out), 0));
-	out->skb->ip_summed = CHECKSUM_NONE;
-}
-
 static int validate_icmp6_csum(struct xlation *state)
 {
 	struct packet const *in = &state->in;
@@ -647,7 +637,7 @@ static int post_icmp4error(struct xlation *state, bool handle_extensions)
 	if (error)
 		return error;
 
-	compute_icmp4_csum(&state->out);
+	compute_icmp4_csum(state->out.skb);
 	return 0;
 }
 
@@ -854,4 +844,135 @@ int ttp64_udp(struct xlation *state)
 	}
 
 	return 0;
+}
+
+/*
+ * TODO Maaaaaaaaybe replace this with icmp6_send().
+ * I'm afraid of using such a high level function from here, tbh.
+ */
+void ttp64_icmp_err(struct xlation *state)
+{
+	struct sk_buff *skb, *out;
+	struct ipv6hdr *hdr;
+	struct ipv6hdr *iph;
+	struct net *net;
+	struct icmp6hdr *ich;
+	int addr_type = 0;
+	int len;
+	__u8 type;
+	__u8 code;
+	bool allow;
+
+	net = state->ns;
+	skb = state->in.skb;
+	hdr = ipv6_hdr(skb);
+	type = state->result.type;
+	code = state->result.code;
+	/*
+	 *	Make sure we respect the rules
+	 *	i.e. RFC 1885 2.4(e)
+	 *	Rule (e.1) is enforced by not using icmp6_send
+	 *	in any code that processes icmp errors.
+	 */
+
+//	if (ipv6_chk_addr(net, &hdr->daddr, skb->dev, 0) ||
+//	    ipv6_chk_acast_addr_src(net, skb->dev, &hdr->daddr))
+//		saddr = &hdr->daddr;
+
+	/*
+	 *	Dest addr check
+	 */
+
+	addr_type = ipv6_addr_type(&hdr->daddr);
+	if ((addr_type & IPV6_ADDR_MULTICAST) || skb->pkt_type != PACKET_HOST) {
+		if (type != ICMPV6_PKT_TOOBIG &&
+		    !(type == ICMPV6_PARAMPROB &&
+		      code == ICMPV6_UNK_OPTION /* &&
+		      (opt_unrec(skb, info)) */ ))
+			return;
+	}
+
+
+	/*
+	 *	Must not send error if the source does not uniquely
+	 *	identify a single node (RFC2463 Section 2.4).
+	 *	We check unspecified / multicast addresses here,
+	 *	and anycast addresses will be checked later.
+	 */
+	addr_type = ipv6_addr_type(&hdr->saddr);
+	if ((addr_type == IPV6_ADDR_ANY) || (addr_type & IPV6_ADDR_MULTICAST)) {
+		net_dbg_ratelimited("icmp6_send: addr_any/mcast source [%pI6c > %pI6c]\n",
+				    &hdr->saddr, &hdr->daddr);
+		return;
+	}
+
+	/*
+	 *	Never answer to a ICMP packet.
+	 */
+//	if (is_ineligible(skb)) {
+//		net_dbg_ratelimited("icmp6_send: no reply to icmp error [%pI6c > %pI6c]\n",
+//				    &hdr->saddr, &hdr->daddr);
+//		return;
+//	}
+
+	/* Needed by both icmp_global_allow and icmpv6_xmit_lock */
+	local_bh_disable();
+
+	/* Check global sysctl_icmp_msgs_per_sec ratelimit */
+//	if (!icmpv6_global_allow(net, type))
+//		goto out_bh_enable;
+	allow = icmp_global_allow();
+	local_bh_enable();
+	if (!allow)
+		return;
+
+	len = skb->len;
+	if (len > 1280u)
+		len = 1280u;
+
+	out = netdev_alloc_skb(state->dev, LL_MAX_HEADER + len);
+	if (!out)
+		return;
+
+	skb_reserve(out, LL_MAX_HEADER);
+	skb_put(out, len);
+	skb_reset_mac_header(out);
+	skb_reset_network_header(out);
+	skb_set_transport_header(out, sizeof(struct ipv6hdr));
+
+	iph = ipv6_hdr(out);
+	iph->version = 6;
+	iph->priority = 0;
+	iph->flow_lbl[0] = 0;
+	iph->flow_lbl[1] = 0;
+	iph->flow_lbl[2] = 0;
+	iph->payload_len = htons(len - sizeof(*iph));
+	iph->nexthdr = NEXTHDR_ICMP;
+	iph->hop_limit = 255;
+
+	/* FIXME variabilize */
+	iph->saddr.s6_addr32[0] = htonl(0x20010db8);
+	iph->saddr.s6_addr32[1] = htonl(0x01c00002);
+	iph->saddr.s6_addr32[2] = htonl(0x00010000);
+	iph->saddr.s6_addr32[3] = 0;
+
+	iph->daddr = hdr->saddr;
+
+	ich = icmp6_hdr(out);
+	ich->icmp6_type = state->result.type;
+	ich->icmp6_code = state->result.code;
+	/* checksum later */
+	ich->icmp6_unused = htonl(state->result.info);
+
+	if (skb_copy_bits(skb, 0, ich + 1, len - sizeof(*iph) - sizeof(*ich))) {
+		dev_kfree_skb(out);
+		return;
+	}
+
+	compute_icmp6_csum(out);
+	out->mark = IP6_REPLY_MARK(net, skb->mark);
+	out->protocol = htons(ETH_P_IPV6);
+
+	memset(&state->out, 0, sizeof(state->out));
+	state->out.skb = out;
 }

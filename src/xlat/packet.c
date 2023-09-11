@@ -197,7 +197,8 @@ static int summarize_skb6(struct xlation *state, unsigned int hdr6_offset,
 			if (meta->fhdr_offset) {
 				log_debug("There's a known extension header (%u) after Fragment.",
 						nexthdr);
-				return drop_icmp(state, ICMPERR_FILTER, 0);
+				return drop_icmp(state, ICMPV6_DEST_UNREACH,
+						ICMPV6_ADM_PROHIBITED, 0);
 			}
 
 			ptr.opt = skb_hdr_ptr(skb, offset, buffer.opt);

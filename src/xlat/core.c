@@ -12,6 +12,7 @@ static const struct translation_steps steps64 = {
 	.xlat_tcp = ttp64_tcp,
 	.xlat_udp = ttp64_udp,
 	.xlat_icmp = ttp64_icmp,
+	.icmp_err = ttp64_icmp_err,
 };
 
 static const struct translation_steps steps46 = {
@@ -21,6 +22,7 @@ static const struct translation_steps steps46 = {
 	.xlat_tcp = ttp46_tcp,
 	.xlat_udp = ttp46_udp,
 	.xlat_icmp = ttp46_icmp,
+	.icmp_err = ttp46_icmp_err,
 };
 
 static bool has_l4_hdr(struct xlation *state)
@@ -52,22 +54,25 @@ void jool_xlat(struct xlation *state, struct sk_buff *in)
 		steps = &steps46;
 		break;
 	default:
-		log_debug("Unknown l3 proto: %u", ntohs(in->protocol));
+		log_debug("Unsupported l3 proto: %u", ntohs(in->protocol));
 		drop(state);
 		return;
 	}
 
 	if (steps->pkt_init(state, in) != 0)
-		return;
+		goto fail;
 	if (steps->skb_alloc(state) != 0)
-		return;
+		goto fail;
 	if (steps->xlat_l3(state) != 0)
-		goto revert;
+		goto fail;
 	if (has_l4_hdr(state) && (xlat_l4_function(state, steps) != 0))
-		goto revert;
+		goto fail;
 	return;
 
-revert:
+fail:
 	kfree_skb_list(state->out.skb);
 	state->out.skb = NULL;
+
+	if (state->result.set)
+		steps->icmp_err(state);
 }

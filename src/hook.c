@@ -6,6 +6,7 @@
 #include <linux/module.h>
 
 #include "xlat/core.h"
+#include "xlat/log.h"
 #include "xlat/translation_state.h"
 
 MODULE_AUTHOR("Alberto Leiva Popper");
@@ -71,6 +72,7 @@ int joolif_start_xmit(struct sk_buff *in, struct net_device *dev)
 
 	memset(&state, 0, sizeof(state));
 	state.ns = dev_net(dev);
+	state.dev = dev;
 	state.cfg = &cfg;
 	state.stats = &stats;
 
@@ -98,6 +100,8 @@ static const struct net_device_ops joolif_netdev_ops = {
 
 void joolif_init(struct net_device *dev)
 {
+//	netif_keep_dst(dev);
+
 	ether_setup(dev);
 	dev->watchdog_timeo = 5; /* TODO ? */
 	dev->netdev_ops = &joolif_netdev_ops;

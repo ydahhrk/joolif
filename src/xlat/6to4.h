@@ -13,5 +13,6 @@ int ttp64_ipv4_external(struct xlation *state);
 int ttp64_tcp(struct xlation *state);
 int ttp64_udp(struct xlation *state);
 int ttp64_icmp(struct xlation *state);
+void ttp64_icmp_err(struct xlation *state);
 
 #endif /* SRC_MOD_COMMON_RFC7915_6TO4_H_ */

@@ -5,16 +5,10 @@
 
 #include "packet.h"
 
-typedef enum icmp_errcode {
-	ICMPERR_TTL,
-	ICMPERR_FRAG_NEEDED,
-	ICMPERR_HDR_FIELD,
-	ICMPERR_SRC_ROUTE,
-	ICMPERR_FILTER,
-} icmp_error_code;
-
 struct xlation_result {
-	enum icmp_errcode icmp;
+	__u8 set;
+	__u8 type;
+	__u8 code;
 	__u32 info;
 };
 
@@ -22,7 +16,8 @@ struct xlation_result {
  * State of the current translation.
  */
 struct xlation {
-	struct net *ns;
+	struct net *ns; /* TODO maybe not needed anymore? use dev instead */
+	struct net_device *dev; /* Easy pointer for the Jool device. */
 
 	struct jool_globals *cfg;
 	struct rtnl_link_stats64 *stats;
@@ -36,6 +31,6 @@ struct xlation {
 };
 
 int drop(struct xlation *state);
-int drop_icmp(struct xlation *state, enum icmp_errcode icmp, __u32 info);
+int drop_icmp(struct xlation *state, __u8 type, __u8 code, __u32 info);
 
 #endif /* SRC_MOD_COMMON_TRANSLATION_STATE_H_ */
