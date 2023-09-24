@@ -1,28 +1,22 @@
-MODULES_DIR ?= /lib/modules/$(shell uname -r)
-KERNEL_DIR ?= ${MODULES_DIR}/build
-
-obj-m += joolif.o
-
-joolif-objs += src/hook.o
-joolif-objs += src/xlat/4to6.o
-joolif-objs += src/xlat/6to4.o
-joolif-objs += src/xlat/common.o
-joolif-objs += src/xlat/core.o
-joolif-objs += src/xlat/address.o
-joolif-objs += src/xlat/ipv6_hdr_iterator.o
-joolif-objs += src/xlat/packet.o
-joolif-objs += src/xlat/translation_state.o
-joolif-objs += src/xlat/types.o
-
 all:
-	make -C ${KERNEL_DIR} M=$$PWD
-modules:
-	make -C ${KERNEL_DIR} M=$$PWD $@
-modules_install:
-	make -C ${KERNEL_DIR} M=$$PWD $@
-install: modules_install
-	depmod
+	make -C mod
+	make -C usr
 clean:
-	make -C ${KERNEL_DIR} M=$$PWD $@
-debug:
-	make CFLAGS_MODULE+=-DDEBUG all
+	make -C mod clean
+	make -C usr clean
+insert:
+	make -C mod insert
+remove:
+	make -C mod remove
+test:
+	make remove
+	make insert
+	usr/joolif siit0 pool6 1:2::/92
+	usr/joolif siit0 pool6791v6 2001:db8::1
+	usr/joolif siit0 pool6791v4 192.0.2.1
+	usr/joolif siit0 amend-udp-checksum-zero 1
+	usr/joolif siit0 amend-udp-checksum-zero 0
+	usr/joolif siit0 lowest-ipv6-mtu 1500
+	-usr/joolif siit0 pool6 2001:db8::/8
+	-usr/joolif siit0 lowest-ipv6-mtu 123
+	sudo dmesg -c

@@ -40,6 +40,9 @@ bool is_icmp4_error(__u8 type);
 struct jool_globals {
 	struct ipv6_prefix pool6;
 
+	struct in6_addr pool6791v6;
+	struct in_addr pool6791v4;
+
 	/**
 	 * "true" if the Traffic Class field of translated IPv6 headers should
 	 * always be zeroized.
