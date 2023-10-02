@@ -26,10 +26,7 @@ static struct jool_globals cfg = {
 	.pool6.addr.s6_addr32[0] = htonl(0x0064ff9b),
 	.pool6.len = 96,
 
-	/* 2001:db8:100::/40 */
-//	.pool6.addr.s6_addr32[0] = htonl(0x20010db8),
-//	.pool6.addr.s6_addr32[1] = htonl(0x01000000),
-//	.pool6.len = 40,
+	.pool6791v4.s_addr = htonl(INADDR_DUMMY),
 
 	.reset_traffic_class = false,
 	.reset_tos = false,

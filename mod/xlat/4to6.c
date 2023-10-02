@@ -1246,6 +1246,8 @@ void ttp46_icmp_err(struct xlation *state)
 	if (pkt_is_icmp4_error(&state->in))
 		return;
 
+	log_debug("Sending ICMPv4 error.");
+
 	local_bh_disable();
 	allow = icmp_global_allow();
 	local_bh_enable();
@@ -1273,10 +1275,9 @@ void ttp46_icmp_err(struct xlation *state)
 	iph->tot_len = htons(len);
 	iph->id = 0;
 	iph->frag_off = build_ipv4_frag_off_field(1, 0, 0);
-	iph->ttl = 255;
+	iph->ttl = 64; /* FIXME Probably change to 255 */
 	iph->protocol = IPPROTO_ICMP;
-	iph->saddr = htonl(INADDR_DUMMY); /* TODO variabilize */
-//	iph->saddr = htonl(0xc6336401); /* Graybox tests version */
+	iph->saddr = state->cfg->pool6791v4.s_addr;
 	iph->daddr = ip_hdr(in)->saddr;
 	iph->check = 0;
 	iph->check = ip_fast_csum(iph, iph->ihl);

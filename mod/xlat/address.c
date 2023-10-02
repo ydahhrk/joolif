@@ -61,7 +61,7 @@ static void addr46(__be32 __src, struct in6_addr *dst, unsigned int q1,
 	dst->s6_addr[q4] = ((src      ) & 0xFF);
 }
 
-static int rfc6052_4to6(struct ipv6_prefix const *prefix, __be32 src,
+int rfc6052_4to6(struct ipv6_prefix const *prefix, __be32 src,
 			struct in6_addr *dst)
 {
 	memset(dst, 0, sizeof(*dst));
@@ -115,17 +115,13 @@ int siit64_addrs(struct xlation *state, __be32 *src, __be32 *dst)
 	struct ipv6_prefix *pool6 = &state->cfg->pool6;
 	struct ipv6hdr *hdr6 = pkt_ip6_hdr(&state->in);
 
-	if ((rfc6052_6to4(pool6, &hdr6->saddr, src)) != 0) {
-		// FIXME
-//		if (pkt_is_icmp6_error(&state->in)
-//				&& !rfc6791v4_find(state, &src.addr)) {
-//			src.entry.method = AXM_RFC6791;
-//			break; /* Ok, success. */
-//		}
-		return drop(state);
+	if (rfc6052_6to4(pool6, &hdr6->saddr, src) != 0) {
+		if (!pkt_is_icmp6_error(&state->in))
+			return drop(state);
+		*src = state->cfg->pool6791v4.s_addr;
 	}
 
-	if ((rfc6052_6to4(pool6, &hdr6->daddr, dst)) != 0)
+	if (rfc6052_6to4(pool6, &hdr6->daddr, dst) != 0)
 		return drop(state);
 
 	log_debug("Result: %pI4->%pI4", src, dst);

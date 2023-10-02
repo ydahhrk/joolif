@@ -846,6 +846,23 @@ int ttp64_udp(struct xlation *state)
 	return 0;
 }
 
+static int
+xlat_icmperr_saddr(struct xlation *state, struct in6_addr *saddr)
+{
+	struct in6_addr *p = &state->cfg->pool6791v6;
+
+	if (p->s6_addr32[0] != 0
+	 || p->s6_addr32[1] != 0
+	 || p->s6_addr32[2] != 0
+	 || p->s6_addr32[3] != 0) {
+		*saddr = *p;
+		return 0;
+	}
+
+	return rfc6052_4to6(&state->cfg->pool6, state->cfg->pool6791v4.s_addr,
+			saddr);
+}
+
 /*
  * TODO Maaaaaaaaybe replace this with icmp6_send().
  * I'm afraid of using such a high level function from here, tbh.
@@ -862,6 +879,8 @@ void ttp64_icmp_err(struct xlation *state)
 	__u8 type;
 	__u8 code;
 	bool allow;
+
+	log_debug("Sending ICMPv6 error.");
 
 	net = state->ns;
 	skb = state->in.skb;
@@ -948,14 +967,11 @@ void ttp64_icmp_err(struct xlation *state)
 	iph->flow_lbl[2] = 0;
 	iph->payload_len = htons(len - sizeof(*iph));
 	iph->nexthdr = NEXTHDR_ICMP;
-	iph->hop_limit = 255;
-
-	/* FIXME variabilize */
-	iph->saddr.s6_addr32[0] = htonl(0x20010db8);
-	iph->saddr.s6_addr32[1] = htonl(0x01c00002);
-	iph->saddr.s6_addr32[2] = htonl(0x00010000);
-	iph->saddr.s6_addr32[3] = 0;
-
+	iph->hop_limit = 64; /* FIXME Probably change to 255 */
+	if (xlat_icmperr_saddr(state, &iph->saddr) != 0) {
+		dev_kfree_skb(out);
+		return;
+	}
 	iph->daddr = hdr->saddr;
 
 	ich = icmp6_hdr(out);

@@ -10,6 +10,9 @@
 
 #include "translation_state.h"
 
+int rfc6052_4to6(struct ipv6_prefix const *prefix, __be32 src,
+		struct in6_addr *dst);
+
 int siit64_addrs(struct xlation *state, __be32 *src, __be32 *dst);
 int siit46_addrs(struct xlation *state, struct in6_addr *src,
 		 struct in6_addr *dst);
