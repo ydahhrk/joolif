@@ -179,9 +179,9 @@ int main(int argc, char **argv) {
 		return EINVAL;
 	}
 
-	if (strlen(argv[0]) > IFNAMSIZ - 1) {
+	if (strlen(argv[1]) > IFNAMSIZ - 1) {
 		pr_err("Interface name too long: %zu > %d",
-		       strlen(argv[0]), IFNAMSIZ - 1);
+		       strlen(argv[1]), IFNAMSIZ - 1);
 		return EINVAL;
 	}
 
