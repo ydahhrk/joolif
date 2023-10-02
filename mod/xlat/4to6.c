@@ -1243,7 +1243,7 @@ void ttp46_icmp_err(struct xlation *state)
 	if (!allow)
 		return;
 
-	len = in->len;
+	len = sizeof(*iph) + sizeof(*ich) + in->len;
 	if (len > 576u)
 		len = 576u;
 

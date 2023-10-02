@@ -926,7 +926,7 @@ void ttp64_icmp_err(struct xlation *state)
 	if (!allow)
 		return;
 
-	len = skb->len;
+	len = sizeof(*iph) + sizeof(*ich) + skb->len;
 	if (len > 1280u)
 		len = 1280u;
 
