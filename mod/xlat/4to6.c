@@ -69,16 +69,11 @@ static int get_delta(struct packet *in)
 	return delta;
 }
 
-static bool fragment_exceeds_mtu46(struct packet *in, unsigned int mtu)
+static unsigned int fragment_exceeds_mtu46(struct packet *in)
 {
 	struct skb_shared_info *shinfo;
-	unsigned int out_hdrs_len;
-	unsigned int out_payload_len;
-
-	out_hdrs_len = sizeof(struct ipv6hdr);
-	if (will_need_frag_hdr(pkt_ip4_hdr(in)))
-		out_hdrs_len += sizeof(struct frag_hdr);
-	out_hdrs_len += pkt_l4hdr_len(in);
+	unsigned int headers;
+	unsigned int payload;
 
 	/*
 	 * Damn it. Should I worry about frag_list before or after GRO?
@@ -97,9 +92,10 @@ static bool fragment_exceeds_mtu46(struct packet *in, unsigned int mtu)
 	 */
 
 	shinfo = skb_shinfo(in->skb);
-	out_payload_len = shinfo->gso_size;
-	if (out_payload_len)
-		return (out_hdrs_len + out_payload_len) > mtu;
+	if (shinfo->gso_size) {
+		payload = shinfo->gso_size;
+		goto include_headers;
+	}
 
 	if (shinfo->frag_list) {
 		/*
@@ -107,11 +103,19 @@ static bool fragment_exceeds_mtu46(struct packet *in, unsigned int mtu)
 		 * nf_defrag_ipv4 only enables DF when the biggest DF fragment
 		 * is also the biggest fragment.
 		 */
-		return IPCB(in->skb)->frag_max_size > mtu;
+		return IPCB(in->skb)->frag_max_size;
 	}
 
-	out_payload_len = in->skb->len - pkt_hdrs_len(in);
-	return (out_hdrs_len + out_payload_len) > mtu;
+	payload = in->skb->len - pkt_hdrs_len(in);
+	/* Fall through */
+
+include_headers:
+	headers = sizeof(struct ipv6hdr);
+	if (will_need_frag_hdr(pkt_ip4_hdr(in)))
+		headers += sizeof(struct frag_hdr);
+	headers += pkt_l4hdr_len(in);
+
+	return headers + payload;
 }
 
 static int allocate_fast(struct xlation *state, bool ignore_df,
@@ -396,6 +400,7 @@ int ttp46_alloc_skb(struct xlation *state)
 	struct packet *in;
 	unsigned int nexthop_mtu;
 	unsigned int mpl;
+	unsigned int out_len;
 
 	in = &state->in;
 	nexthop_mtu = state->dev->mtu;
@@ -411,12 +416,16 @@ int ttp46_alloc_skb(struct xlation *state)
 		return allocate_fast(state, false, 0);
 	}
 
+	out_len = fragment_exceeds_mtu46(in);
+
 	if (is_df_set(pkt_ip4_hdr(in))) {
 		/*
 		 * Good; sender is not a dumbass.
 		 * Fragment header will only be included if already fragmented.
 		 */
-		if (fragment_exceeds_mtu46(in, nexthop_mtu)) {
+		if (out_len > nexthop_mtu) {
+			log_debug("Translated packet is too big (%u) for nexthop MTU (%u)",
+				out_len, nexthop_mtu);
 			return drop_icmp(state, ICMP_DEST_UNREACH,
 					ICMP_FRAG_NEEDED,
 					max(576u, nexthop_mtu - 20u));
@@ -426,7 +435,7 @@ int ttp46_alloc_skb(struct xlation *state)
 		}
 	}
 
-	if (fragment_exceeds_mtu46(in, mpl)) {
+	if (out_len > mpl) {
 		/*
 		 * Force LIM and Fragmentation ID preservation through manual
 		 * fragmentation.
