@@ -43,7 +43,7 @@ static struct rtnl_link_stats64 stats;
 
 int joolif_open(struct net_device *dev)
 {
-	memcpy(dev->dev_addr, "646464", ETH_ALEN);
+//	memcpy(dev->dev_addr, "646464", ETH_ALEN);
 	netif_start_queue(dev);
 	return 0;
 }

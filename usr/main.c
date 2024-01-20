@@ -10,8 +10,6 @@
 #include <netinet/in.h> /* in6_addr, in_addr */
 #include <arpa/inet.h> /* inet_pton */
 
-#define pr_err(format, ...) fprintf(stderr, format "\n", ##__VA_ARGS__)
-
 #define JCMD_POOL6		(SIOCDEVPRIVATE + 1)
 #define JCMD_POOL6791V4		(SIOCDEVPRIVATE + 2)
 #define JCMD_POOL6791V6		(SIOCDEVPRIVATE + 3)
@@ -37,12 +35,12 @@ static int read_ulong(char const *str, unsigned long *result, unsigned long max)
 	ulong = strtoul(str, NULL, 10);
 	if (errno) {
 		error = errno;
-		pr_err("Cannot parse '%s': %s", str, strerror(error));
+		fprintf(stderr, "Cannot parse '%s': %s\n", str, strerror(error));
 		return error;
 	}
 
 	if (ulong > max) {
-		pr_err("Cannot parse '%s': Integer too big", str);
+		fprintf(stderr, "Cannot parse '%s': Integer too big\n", str);
 		return ERANGE;
 	}
 
@@ -79,7 +77,7 @@ static int read_addr6(char const *str, struct in6_addr *addr)
 	if (inet_pton(AF_INET6, str, addr) == 1)
 		return 0;
 
-	pr_err("Cannot parse '%s' as an IPv6 address.", str);
+	fprintf(stderr, "Cannot parse '%s' as an IPv6 address.\n", str);
 	return EINVAL;
 }
 
@@ -88,7 +86,7 @@ static int read_addr4(char const *str, struct in_addr *addr)
 	if (inet_pton(AF_INET, str, addr) == 1)
 		return 0;
 
-	pr_err("Cannot parse '%s' as an IPv4 address.", str);
+	fprintf(stderr, "Cannot parse '%s' as an IPv4 address.\n", str);
 	return EINVAL;
 }
 
@@ -101,14 +99,14 @@ static int read_prefix6(const char *str, struct ipv6_prefix *prefix)
 	int error;
 
 	if (strlen(str) + 1 > STR_MAX_LEN) {
-		pr_err("String too long: %s", str);
+		fprintf(stderr, "String too long: %s\n", str);
 		return EINVAL;
 	}
 	strcpy(str_copy, str);
 
 	token = strtok(str_copy, "/");
 	if (!token) {
-		pr_err("Cannot parse '%s' as an IPv6 address.", str);
+		fprintf(stderr, "Cannot parse '%s' as an IPv6 address.\n", str);
 		return EINVAL;
 	}
 
@@ -157,9 +155,9 @@ static int read_arg(struct ioctl_arg *arg, char const *key, char const *value)
 		error = read_u8(value, &buffer.u8, 1);
 
 	} else {
-		pr_err("Unrecognized argument name: %s", key);
-		pr_err("Available values: pool6 pool6791v6 pool6791v4 "
-				"lowest-ipv6-mtu amend-udp-checksum-zero");
+		fprintf(stderr, "Unrecognized argument name: %s\n", key);
+		fprintf(stderr, "Available values: pool6 pool6791v6 pool6791v4 "
+				"lowest-ipv6-mtu amend-udp-checksum-zero\n");
 		return EINVAL;
 	}
 
@@ -175,12 +173,12 @@ int main(int argc, char **argv) {
 	int error;
 
 	if (argc != 4) {
-		pr_err("Usage: joolif <interface> <key> <value>");
+		fprintf(stderr, "Usage: joolif <interface> <key> <value>\n");
 		return EINVAL;
 	}
 
 	if (strlen(argv[1]) > IFNAMSIZ - 1) {
-		pr_err("Interface name too long: %zu > %d",
+		fprintf(stderr, "Interface name too long: %zu > %d\n",
 		       strlen(argv[1]), IFNAMSIZ - 1);
 		return EINVAL;
 	}
@@ -194,16 +192,15 @@ int main(int argc, char **argv) {
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (sockfd == -1) {
 		error = errno;
-		pr_err("Cannot open socket: %s", strerror(error));
+		fprintf(stderr, "Cannot open socket: %s\n", strerror(error));
 		return error;
 	}
 
 	if (ioctl(sockfd, arg.cmd, &arg.ifr) < 0) {
 		error = errno;
-		pr_err("ioctl error: %s", strerror(error));
+		fprintf(stderr, "ioctl error: %s\n", strerror(error));
 	}
 
 	close(sockfd);
 	return error;
-
 }
