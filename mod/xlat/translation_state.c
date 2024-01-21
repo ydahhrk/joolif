@@ -2,8 +2,8 @@
 
 int drop(struct xlation *state)
 {
-	state->stats->rx_errors++;
-	state->stats->rx_dropped++;
+//	state->stats->rx_errors++;
+//	state->stats->rx_dropped++;
 	return -EINVAL;
 }
 

@@ -43,9 +43,6 @@ void jool_xlat(struct xlation *state, struct sk_buff *in)
 {
 	struct translation_steps const *steps;
 
-	state->stats->rx_packets++;
-	state->stats->rx_bytes += in->len;
-
 	switch (ntohs(in->protocol)) {
 	case ETH_P_IPV6:
 		steps = &steps64;

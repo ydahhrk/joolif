@@ -20,7 +20,6 @@ struct xlation {
 	struct net_device *dev; /* Easy pointer for the Jool device. */
 
 	struct jool_globals *cfg;
-	struct rtnl_link_stats64 *stats;
 
 	/** The original packet. */
 	struct packet in;

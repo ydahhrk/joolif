@@ -1,10 +1,23 @@
 /*
- * Adapted from snull, from the book "Linux Device Drivers" by Alessandro Rubini
- * and Jonathan Corbet, published by O'Reilly & Associates.
+ * Adapted from snull (from the book "Linux Device Drivers" by Alessandro Rubini
+ * and Jonathan Corbet, published by O'Reilly & Associates) and veth.
  */
 
+/*
+ * Development notes/to-dos:
+ *
+ * - I removed from veth everything xdp-related. Might want to restore it later.
+ * - snull uses ioctls while veth uses Netlink, for seemingly the same purpose.
+ *   The latter is probably the smarter way of receiving arguments from
+ *   userspace, but might require tweaking the `ip link` binaries.
+ * - Stats removed. I haven't figured out how to print them in userspace,
+ *   so I can't test them.
+ */
+
+#include <linux/etherdevice.h>
 #include <linux/module.h>
 #include <linux/ioctl.h>
+#include <linux/version.h>
 
 #include "xlat/core.h"
 #include "xlat/log.h"
@@ -12,6 +25,13 @@
 
 MODULE_AUTHOR("Alberto Leiva Popper");
 MODULE_LICENSE("GPL v2");
+
+#define DRV_NAME "siit"
+
+/* Inherited from veth, unused placeholder for now. */
+struct siit_priv {
+	atomic64_t		dropped;
+};
 
 #define JCMD_POOL6		(SIOCDEVPRIVATE + 1)
 #define JCMD_POOL6791V4		(SIOCDEVPRIVATE + 2)
@@ -39,11 +59,8 @@ static struct jool_globals cfg = {
 	.compute_udp_csum_zero = false,
 };
 
-static struct rtnl_link_stats64 stats;
-
 int joolif_open(struct net_device *dev)
 {
-//	memcpy(dev->dev_addr, "646464", ETH_ALEN);
 	netif_start_queue(dev);
 	return 0;
 }
@@ -72,13 +89,12 @@ int joolif_start_xmit(struct sk_buff *in, struct net_device *dev)
 
 	pr_info("Received a packet.\n");
 
-	skb_pull(in, ETH_HLEN); /* TODO check len >= ETH_HLEN first */
+	skb_pull(in, ETH_HLEN); /* TODO check len >= ETH_HLEN first? */
 
 	memset(&state, 0, sizeof(state));
 	state.ns = dev_net(dev);
 	state.dev = dev;
 	state.cfg = &cfg;
-	state.stats = &stats;
 
 	jool_xlat(&state, in);
 	dev_kfree_skb(in);
@@ -192,55 +208,218 @@ efault:
 	return -EFAULT;
 }
 
-static void joolif_get_stats64(struct net_device *dev,
-			       struct rtnl_link_stats64 *storage)
-{
-	*storage = stats;
-}
-
 static const struct net_device_ops joolif_netdev_ops = {
-	.ndo_open            = joolif_open,
-	.ndo_stop            = joolif_stop,
-	.ndo_start_xmit      = joolif_start_xmit,
-	.ndo_do_ioctl        = joolif_ioctl,
-	.ndo_get_stats64     = joolif_get_stats64,
+	.ndo_open		= joolif_open,
+	.ndo_stop		= joolif_stop,
+	.ndo_start_xmit		= joolif_start_xmit,
+	.ndo_do_ioctl		= joolif_ioctl,
 };
 
-void joolif_init(struct net_device *dev)
-{
-//	netif_keep_dst(dev);
+/*
+ * Inherited from veth.
+ *
+ * Netfilter/iptables Jool decently translates GSO, frag_list and checksums.
+ * However, I don't yet know what these flags do nor exactly what they expect us
+ * to do, so I decided to leave them out for now.
+ */
+#define SIIT_FEATURES (NETIF_F_SG | NETIF_F_FRAGLIST | NETIF_F_HW_CSUM | \
+		       NETIF_F_RXCSUM | /* NETIF_F_HIGHDMA | ? */ \
+		       NETIF_F_GSO_SOFTWARE | NETIF_F_GSO_ENCAP_ALL)
 
+/*
+ * Mixed from snull and veth.
+ */
+static void siit_setup(struct net_device *dev)
+{
 	ether_setup(dev);
-	dev->watchdog_timeo = 5; /* TODO ? */
-	dev->netdev_ops = &joolif_netdev_ops;
+
+//	dev->watchdog_timeo = 5; TODO ?
 	dev->flags    |= IFF_NOARP | IFF_DEBUG;
 	dev->flags    &= ~IFF_MULTICAST;
 	dev->features |= NETIF_F_SG | NETIF_F_FRAGLIST |  NETIF_F_HW_CSUM;
+
+	/* pskb_may_pull() crashes on shared packets.
+	 * https://elixir.bootlin.com/linux/latest/source/net/core/skbuff.c#L2091
+	 * There might be other functions that reject shareds. */
+	dev->priv_flags &= ~IFF_TX_SKB_SHARING;
+	/* Jool doesn't care about the L2 address, so whatever I guess. */
+	dev->priv_flags |= IFF_LIVE_ADDR_CHANGE;
+	/* Is this relevant? Packet order matters nothing to SIIT. */
+	dev->priv_flags |= IFF_NO_QUEUE;
+
+	dev->netdev_ops = &joolif_netdev_ops;
+//	dev->features |= SIIT_FEATURES;
+	dev->needs_free_netdev = true;
+//	dev->priv_destructor = ;
+//	dev->pcpu_stat_type = NETDEV_PCPU_STAT_NONE; /* Newer kernels only. */
+	dev->max_mtu = ETH_MAX_MTU;
+
+//	dev->hw_features = SIIT_FEATURES;
+//	dev->hw_enc_features = SIIT_FEATURES;
+//	dev->mpls_features = NETIF_F_HW_CSUM | NETIF_F_GSO_SOFTWARE;
+//	netif_set_tso_max_size(dev, GSO_MAX_SIZE);
 }
 
-static int joolif_init_module(void)
+/*
+ * Inherited from veth. Seems reasonable.
+ */
+static int is_valid_siit_mtu(int mtu)
 {
-	int error;
+	return mtu >= ETH_MIN_MTU && mtu <= ETH_MAX_MTU;
+}
 
-	joolif_dev = alloc_netdev(0, "siit%d", NET_NAME_UNKNOWN, joolif_init);
-	if (joolif_dev == 0)
-		return -ENOMEM;
+/*
+ * Inherited from veth. Seems reasonable.
+ */
+static int siit_validate(struct nlattr *tb[], struct nlattr *data[],
+			 struct netlink_ext_ack *extack)
+{
+	if (tb[IFLA_ADDRESS]) {
+		if (nla_len(tb[IFLA_ADDRESS]) != ETH_ALEN)
+			return -EINVAL;
+		if (!is_valid_ether_addr(nla_data(tb[IFLA_ADDRESS])))
+			return -EADDRNOTAVAIL;
+	}
+	if (tb[IFLA_MTU]) {
+		if (!is_valid_siit_mtu(nla_get_u32(tb[IFLA_MTU])))
+			return -EINVAL;
+	}
+	return 0;
+}
 
-	error = register_netdev(joolif_dev);
-	if (error) {
-		printk("joolif: error %i registering device \"%s\"\n",
-		       error, joolif_dev->name);
-		free_netdev(joolif_dev);
+/*
+ * Inherited from veth.c. I have no idea why it exists.
+ *
+ * 	ip link add type siit numtxqueues 5 numrxqueues 6
+ *
+ * results in
+ *
+ *	dev->num_tx_queues: 5
+ *	dev->num_rx_queues: 6
+ *	dev->real_num_tx_queues: 5
+ *	dev->real_num_rx_queues: 6
+ *
+ * If numtxqueues/numrxqueues default, rtnl_create_link() uses
+ * siit_get_num_queues() to set num_tx_queues/num_rx_queues. In my quad core,
+ * this results in
+ *
+ *	dev->num_tx_queues: 4
+ *	dev->num_rx_queues: 4
+ *	dev->real_num_tx_queues: 4
+ *	dev->real_num_rx_queues: 4
+ *
+ * Then this function downgrades the last two to 1.
+ *
+ * This looks like nonsense.
+ */
+static int siit_init_queues(struct net_device *dev, struct nlattr *tb[])
+{
+	int err;
+
+	if (!tb[IFLA_NUM_TX_QUEUES] && dev->num_tx_queues > 1) {
+		err = netif_set_real_num_tx_queues(dev, 1);
+		if (err)
+			return err;
+	}
+	if (!tb[IFLA_NUM_RX_QUEUES] && dev->num_rx_queues > 1) {
+		err = netif_set_real_num_rx_queues(dev, 1);
+		if (err)
+			return err;
 	}
 
-	return error;
+	return 0;
 }
 
-static void joolif_cleanup(void)
+/* https://github.com/torvalds/linux/commit/872f690341948b502c93318f806d821c5 */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+#define NLA_STRCPY nla_strscpy
+#else
+#define NLA_STRCPY nla_strlcpy
+#endif
+
+/*
+ * Simplified version of veth's newlink.
+ */
+static int siit_newlink(struct net *src_net, struct net_device *dev,
+			struct nlattr *tb[], struct nlattr *data[],
+			struct netlink_ext_ack *extack)
 {
-	unregister_netdev(joolif_dev);
-	free_netdev(joolif_dev);
+	int err;
+
+	if (tb[IFLA_ADDRESS] == NULL)
+		eth_hw_addr_random(dev);
+
+	if (tb[IFLA_IFNAME])
+		NLA_STRCPY(dev->name, tb[IFLA_IFNAME], IFNAMSIZ);
+	else
+		snprintf(dev->name, IFNAMSIZ, DRV_NAME "%%d");
+
+	err = register_netdevice(dev);
+	if (err < 0)
+		return err;
+
+	pr_info("Added device '%s'.\n", dev->name);
+
+	err = siit_init_queues(dev, tb);
+	if (err) {
+		unregister_netdevice(dev);
+		return err;
+	}
+
+	return 0;
 }
 
-module_init(joolif_init_module);
-module_exit(joolif_cleanup);
+/*
+ * Inherited from veth. Not actually needed; if dellink is NULL,
+ * __rtnl_link_register() automatically sets it as unregister_netdevice_queue().
+ *
+ * If you don't add anything, probably delete this function on pr_info() purge
+ * day.
+ */
+static void siit_dellink(struct net_device *dev, struct list_head *head)
+{
+	pr_info("Removing device '%s'.\n", dev->name);
+	unregister_netdevice_queue(dev, head);
+}
+
+/*
+ * Inherited from veth. Seems like a reasonable implementation.
+ */
+static unsigned int siit_get_num_queues(void)
+{
+	int queues = num_possible_cpus();
+	return (queues > 4096) ? 4096 : queues;
+}
+
+static struct rtnl_link_ops siit_link_ops = {
+	.kind			= DRV_NAME,
+	.priv_size		= sizeof(struct siit_priv),
+	.setup			= siit_setup,
+	.validate		= siit_validate,
+	.newlink		= siit_newlink,
+	.dellink		= siit_dellink,
+
+	/* nlargs not needed for now, so .policy and .maxtype excluded */
+
+	/*
+	 * It seems veth uses .get_link_net to return the peer dev's namespace.
+	 * The kernel seems to only use this incidentally (as an ugly hack),
+	 * and has no meaning in SIIT anyway.
+	 */
+
+	.get_num_tx_queues	= siit_get_num_queues,
+	.get_num_rx_queues	= siit_get_num_queues,
+};
+
+static int joolif_init(void)
+{
+	return rtnl_link_register(&siit_link_ops);
+}
+
+static void joolif_exit(void)
+{
+	rtnl_link_unregister(&siit_link_ops);
+}
+
+module_init(joolif_init);
+module_exit(joolif_exit);

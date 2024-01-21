@@ -30,3 +30,7 @@ insert:
 	sudo insmod joolif.ko
 remove:
 	-sudo rmmod joolif
+test: remove all insert
+	sudo dmesg -C
+	sudo ip link add type siit
+	sudo dmesg -c

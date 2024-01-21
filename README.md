@@ -23,5 +23,4 @@ Current SIIT test results:
 
 - The code that sets up the interface is a hackjob quickly adapted from [snull](https://github.com/martinezjavier/ldd3/blob/master/snull/snull.c).
 	- If you have experience writing network device drivers, please feel free to turn it upside down.
-	- Only one interface is created during modprobe/insmod, no additional interfaces can be created.
 - Tested/developed in Debian 11's 5.10.0-27-amd64 kernel. I don't know if it'll work in anything else.
