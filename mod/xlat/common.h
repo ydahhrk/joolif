@@ -6,7 +6,7 @@
 #include "packet.h"
 #include "translation_state.h"
 
-/**
+/*
  * An accesor for the full unused portion of the ICMP header, which I feel is
  * missing from linux/icmp.h.
  */
@@ -19,7 +19,7 @@ typedef void (*icmp_error)(struct xlation *);
 
 struct translation_steps {
 	pkt_init_fn pkt_init;
-	/**
+	/*
 	 * Routes the outgoing packet, allocates it, then copies dst_entry and
 	 * layer 4 payload into it. Ensures there's enough headroom (bytes
 	 * between skb->head and skb->data) for translated headers.
@@ -37,9 +37,9 @@ struct translation_steps {
 	 * room for the header length expansion from v4 to v6.
 	 */
 	skb_alloc_fn skb_alloc;
-	/** The function that will translate the IP header. */
+	/* The function that will translate the IP header. */
 	hdr_xlat_fn xlat_l3;
-	/**
+	/*
 	 * Translates everything between the external IP header and the L4
 	 * payload.
 	 */
@@ -53,7 +53,7 @@ struct translation_steps {
 void partialize_skb(struct sk_buff *skb, __u16 csum_offset);
 bool will_need_frag_hdr(const struct iphdr *hdr);
 int ttpcomm_translate_inner_packet(struct xlation *state,
-		struct translation_steps const *steps);
+				   struct translation_steps const *steps);
 
 struct bkp_skb {
 	unsigned int pulled;
@@ -71,12 +71,12 @@ struct bkp_skb_tuple {
 };
 
 int become_inner_packet(struct xlation *state, struct bkp_skb_tuple *bkp,
-		bool do_out);
+			bool do_out);
 void restore_outer_packet(struct xlation *state, struct bkp_skb_tuple *bkp,
-		bool do_out);
+			bool do_out);
 
 int xlat_l4_function(struct xlation *state,
-		struct translation_steps const *steps);
+		     struct translation_steps const *steps);
 
 bool must_not_translate(struct in_addr *addr, struct net *ns);
 

@@ -12,7 +12,7 @@ struct xlation_result {
 	__u32 info;
 };
 
-/**
+/*
  * State of the current translation.
  */
 struct xlation {
@@ -21,9 +21,9 @@ struct xlation {
 
 	struct jool_globals *cfg;
 
-	/** The original packet. */
+	/* The original packet. */
 	struct packet in;
-	/** The translated version of @in. */
+	/* The translated version of @in. */
 	struct packet out;
 
 	struct xlation_result result;

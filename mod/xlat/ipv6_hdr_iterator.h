@@ -1,7 +1,7 @@
 #ifndef SRC_MOD_COMMON_HDR_ITERATOR_H_
 #define SRC_MOD_COMMON_HDR_ITERATOR_H_
 
-/**
+/*
  * @file
  * Routines and structures that help traverse the extension headers of IPv6 packets.
  *
@@ -14,20 +14,20 @@
 #include <linux/ipv6.h>
 
 
-/**
+/*
  * An object that helps you traverse the IPv6 headers of a packet.
  */
 struct hdr_iterator {
-	/** Type of the header we're currently visiting (previous header's nexthdr value). */
+	/* Type of the header we're currently visiting (previous header's nexthdr value). */
 	__u8 hdr_type;
-	/**
+	/*
 	 * Header we're currently visiting. Might also be the payload, if the iteration ended.
 	 * You can know what's here by querying "hdr_type".
 	 */
 	void const *data;
 };
 
-/**
+/*
  * Use this to initialize your header iterator.
  *
  * @param main_hdr The IPv6 header whose subheaders you want to traverse.
@@ -38,7 +38,7 @@ struct hdr_iterator {
 	.data = (main_hdr) + 1, \
 }
 
-/**
+/*
  * Advances "iterator->data" one header and updates "iterator->hdr_type" accordingly. If "iterator"
  * has already reached the payload, nothing will happen.
  *
@@ -47,14 +47,14 @@ struct hdr_iterator {
  *		to reach another header.
  */
 int hdr_iterator_next(struct hdr_iterator *iterator);
-/**
+/*
  * Advances "iterator" to the end of the recognized header chain.
  *
  * @param iterator iterator you want to move to the end of its chain.
  */
 void hdr_iterator_last(struct hdr_iterator *iterator);
 
-/**
+/*
  * Internally uses an iterator to reach and return header "hdr_id" from the headers following
  * "ip6_hdr"'s.
  *

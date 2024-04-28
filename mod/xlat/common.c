@@ -8,7 +8,7 @@
 #include "log.h"
 #include "packet.h"
 
-/**
+/*
  * Note: Fragmentation offloading is handled transparently: NIC joins fragments,
  * we translate the large and seemingly unfragmented packet, then NIC fragments
  * again, re-adding the fragment header.
@@ -25,7 +25,7 @@ bool will_need_frag_hdr(const struct iphdr *hdr)
 }
 
 static int move_pointers_in(struct packet *pkt, __u8 protocol,
-		unsigned int l3hdr_len)
+			    unsigned int l3hdr_len)
 {
 	unsigned int l4hdr_len;
 
@@ -59,7 +59,7 @@ static int move_pointers_in(struct packet *pkt, __u8 protocol,
 }
 
 static int move_pointers_out(struct packet *in, struct packet *out,
-		unsigned int l3hdr_len)
+			     unsigned int l3hdr_len)
 {
 	if (!jskb_pull(out->skb, pkt_hdrs_len(out)))
 		return -EINVAL;
@@ -68,8 +68,7 @@ static int move_pointers_out(struct packet *in, struct packet *out,
 
 	out->l4_proto = in->l4_proto;
 	out->is_inner = true;
-	out->payload_offset = skb_transport_offset(out->skb)
-			+ pkt_l4hdr_len(in);
+	out->payload_offset = skb_transport_offset(out->skb) + pkt_l4hdr_len(in);
 
 	return 0;
 }
@@ -103,7 +102,7 @@ static int move_pointers6(struct packet *in, struct packet *out, bool do_out)
 	hdr_iterator_last(&iterator);
 
 	error = move_pointers_in(in, iterator.hdr_type,
-			iterator.data - (void *)hdr6);
+				 iterator.data - (void *)hdr6);
 	if (error)
 		return error;
 
@@ -130,7 +129,7 @@ static void restore_pointers(struct packet *pkt, struct bkp_skb *bkp)
 }
 
 int become_inner_packet(struct xlation *state, struct bkp_skb_tuple *bkp,
-		bool do_out)
+			bool do_out)
 {
 	struct packet *in = &state->in;
 	struct packet *out = &state->out;
@@ -154,7 +153,7 @@ int become_inner_packet(struct xlation *state, struct bkp_skb_tuple *bkp,
 }
 
 void restore_outer_packet(struct xlation *state, struct bkp_skb_tuple *bkp,
-		bool do_out)
+			  bool do_out)
 {
 	restore_pointers(&state->in, &bkp->in);
 	if (do_out)
@@ -162,7 +161,7 @@ void restore_outer_packet(struct xlation *state, struct bkp_skb_tuple *bkp,
 }
 
 int xlat_l4_function(struct xlation *state,
-		struct translation_steps const *steps)
+		     struct translation_steps const *steps)
 {
 	switch (state->in.l4_proto) {
 	case IPPROTO_TCP:
@@ -181,7 +180,7 @@ int xlat_l4_function(struct xlation *state,
 }
 
 int ttpcomm_translate_inner_packet(struct xlation *state,
-		struct translation_steps const *steps)
+				   struct translation_steps const *steps)
 {
 	struct bkp_skb_tuple bkp;
 	int error;
@@ -201,7 +200,7 @@ end:
 	return error;
 }
 
-/**
+/*
  * partialize_skb - set up @out_skb so the layer 4 checksum will be computed
  * from almost-scratch by the OS or by the NIC later.
  * @csum_offset: The checksum field's offset within its header.
@@ -296,11 +295,11 @@ static int fix_ie(struct xlation *state, size_t in_ie_offset, size_t ipl,
 
 copy_fail:
 	log_debug("skb_copy_bits(skb, %d, %zd, %d) threw error %d.",
-			offset, to - beginning, len, error);
+		  offset, to - beginning, len, error);
 	return drop(state);
 }
 
-/**
+/*
  * Use this when header and payload both changed completely, so we gotta just
  * trash the old checksum and start anew.
  */
@@ -314,7 +313,7 @@ void compute_icmp4_csum(struct sk_buff *skb)
 	 */
 	hdr->checksum = 0;
 	hdr->checksum = csum_fold(skb_checksum(skb, skb_transport_offset(skb),
-			skb_datagram_len(skb), 0));
+					       skb_datagram_len(skb), 0));
 	skb->ip_summed = CHECKSUM_NONE;
 }
 
@@ -330,14 +329,15 @@ void compute_icmp6_csum(struct sk_buff *out)
 	 */
 	out_icmp->icmp6_cksum = 0;
 	csum = skb_checksum(out, skb_transport_offset(out),
-			skb_datagram_len(out), 0);
+			    skb_datagram_len(out), 0);
 	out_icmp->icmp6_cksum = csum_ipv6_magic(&out_ip6->saddr,
-			&out_ip6->daddr, skb_datagram_len(out), IPPROTO_ICMPV6,
-			csum);
+						&out_ip6->daddr,
+						skb_datagram_len(out),
+						IPPROTO_ICMPV6, csum);
 	out->ip_summed = CHECKSUM_NONE;
 }
 
-/**
+/*
  * "Handle the ICMP Extension" in this context means
  *
  * - Make sure it aligns in accordance with the target protocol's ICMP length
@@ -395,7 +395,7 @@ int handle_icmp_extension(struct xlation *state, struct icmpext_args *args)
 	}
 	if (args->ipl > payload_len) {
 		log_debug("ICMP Length %zu > L3 payload %zu", args->ipl,
-				payload_len);
+			  payload_len);
 		return drop(state);
 	}
 
@@ -407,14 +407,14 @@ int handle_icmp_extension(struct xlation *state, struct icmpext_args *args)
 	/* Figure out what we want to do */
 	/* (Assumption: In packet's iel equals current out packet's iel) */
 	if (args->force_remove_ie || (in_iel > max_iel)) {
-		out_ipl = min(out->skb->len - in_iel, args->max_pkt_len)
-				- pkt_hdrs_len(out);
+		out_ipl = min(out->skb->len - in_iel, args->max_pkt_len) -
+			  pkt_hdrs_len(out);
 		out_pad = 0;
 		out_iel = 0;
 		args->ipl = 0;
 	} else {
-		out_ipl = min((size_t)out->skb->len, args->max_pkt_len) - in_iel
-				- pkt_hdrs_len(out);
+		out_ipl = min((size_t)out->skb->len, args->max_pkt_len) -
+			  in_iel - pkt_hdrs_len(out);
 		/* Note to self: Yes, truncate. It's already maximized;
 		 * we can't add any zeroes. Just make it fit. */
 		out_ipl &= (~(size_t)0) << args->out_bits;
@@ -425,7 +425,7 @@ int handle_icmp_extension(struct xlation *state, struct icmpext_args *args)
 
 	/* Move everything around */
 	return fix_ie(state, skb_network_offset(in->skb) + in_ieo, out_ipl,
-			out_pad, out_iel);
+		      out_pad, out_iel);
 }
 
 void skb_cleanup_copy(struct sk_buff *skb)

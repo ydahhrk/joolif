@@ -1,7 +1,7 @@
 #ifndef SRC_MOD_COMMON_PACKET_H_
 #define SRC_MOD_COMMON_PACKET_H_
 
-/**
+/*
  * @file
  * Random packet-related functions.
  *
@@ -53,7 +53,7 @@
 #include "types.h"
 
 
-/** Returns a hack-free version of the 'Traffic class' field from @hdr. */
+/* Returns a hack-free version of the 'Traffic class' field from @hdr. */
 static inline __u8 get_traffic_class(const struct ipv6hdr *hdr)
 {
 	__u8 upper_bits = hdr->priority;
@@ -61,7 +61,7 @@ static inline __u8 get_traffic_class(const struct ipv6hdr *hdr)
 	return (upper_bits << 4) | lower_bits;
 }
 
-/**
+/*
  * Returns a big endian (but otherwise hack-free) version of the 'Flow label'
  * field from @hdr.
  */
@@ -70,39 +70,39 @@ static inline __be32 get_flow_label(const struct ipv6hdr *hdr)
 	return (*(__be32 *) hdr) & IPV6_FLOWLABEL_MASK;
 }
 
-/** Returns IP_DF if the DF flag from @hdr is set, 0 otherwise. */
+/* Returns IP_DF if the DF flag from @hdr is set, 0 otherwise. */
 static inline __u16 is_df_set(const struct iphdr *hdr)
 {
 	return be16_to_cpu(hdr->frag_off) & IP_DF;
 }
 
-/** Returns IP6_MF if the MF flag from @hdr is set, 0 otherwise. */
+/* Returns IP6_MF if the MF flag from @hdr is set, 0 otherwise. */
 static inline __u16 is_mf_set_ipv6(const struct frag_hdr *hdr)
 {
 	return be16_to_cpu(hdr->frag_off) & IP6_MF;
 }
 
-/** Returns IP_MF if the MF flag from @hdr is set, 0 otherwise. */
+/* Returns IP_MF if the MF flag from @hdr is set, 0 otherwise. */
 static inline __u16 is_mf_set_ipv4(const struct iphdr *hdr)
 {
 	return be16_to_cpu(hdr->frag_off) & IP_MF;
 }
 
-/** Returns a hack-free version of the 'Fragment offset' field from @hdr. */
-static inline __u16 get_fragment_offset_ipv6(const struct frag_hdr *hdr)
+/* Returns a hack-free version of the 'Fragment offset' field from @hdr. */
+static inline __u16 get_v6_frag_offset(const struct frag_hdr *hdr)
 {
 	return be16_to_cpu(hdr->frag_off) & 0xFFF8U;
 }
 
-/** Returns a hack-free version of the 'Fragment offset' field from @hdr. */
-static inline __u16 get_fragment_offset_ipv4(const struct iphdr *hdr)
+/* Returns a hack-free version of the 'Fragment offset' field from @hdr. */
+static inline __u16 get_v4_frag_offset(const struct iphdr *hdr)
 {
 	__u16 frag_off = be16_to_cpu(hdr->frag_off);
 	/* 3 bit shifts to the left == multiplication by 8. */
 	return (frag_off & IP_OFFSET) << 3;
 }
 
-/**
+/*
  * Pretends @skb's IPv6 header has a "total length" field and returns its value.
  */
 static inline unsigned int get_tot_len_ipv6(const struct sk_buff *skb)
@@ -112,22 +112,22 @@ static inline unsigned int get_tot_len_ipv6(const struct sk_buff *skb)
 
 static inline bool is_first_frag4(const struct iphdr *hdr)
 {
-	return get_fragment_offset_ipv4(hdr) == 0;
+	return get_v4_frag_offset(hdr) == 0;
 }
 
 static inline bool is_first_frag6(const struct frag_hdr *hdr)
 {
-	return hdr ? (get_fragment_offset_ipv6(hdr) == 0) : true;
+	return hdr ? (get_v6_frag_offset(hdr) == 0) : true;
 }
 
 static inline bool ip6_is_fragment(const struct frag_hdr *hdr)
 {
 	if (!hdr)
 		return false;
-	return (get_fragment_offset_ipv6(hdr) != 0) || is_mf_set_ipv6(hdr);
+	return (get_v6_frag_offset(hdr) != 0) || is_mf_set_ipv6(hdr);
 }
 
-/**
+/*
  * frag_hdr.frag_off is actually a combination of the 'More fragments' flag and
  * the 'Fragment offset' field. This function is a one-liner for creating a
  * settable frag_off.
@@ -135,13 +135,13 @@ static inline bool ip6_is_fragment(const struct frag_hdr *hdr)
  * means that you want @frag_offset to be a multiple of 8 if you want your
  * fragmentation to work properly.
  */
-static inline __be16 build_ipv6_frag_off_field(__u16 frag_offset, __u16 mf)
+static inline __be16 build_v6_frag_offset(__u16 frag_offset, __u16 mf)
 {
 	__u16 result = (frag_offset & 0xFFF8U) | (mf ? 1U : 0U);
 	return cpu_to_be16(result);
 }
 
-/**
+/*
  * iphdr.frag_off is actually a combination of the DF flag, the MF flag and the
  * 'Fragment offset' field. This function is a one-liner for creating a settable
  * frag_off.
@@ -149,16 +149,16 @@ static inline __be16 build_ipv6_frag_off_field(__u16 frag_offset, __u16 mf)
  * means that you want @frag_offset to be a multiple of 8 if you want your
  * fragmentation to work properly.
  */
-static inline __be16 build_ipv4_frag_off_field(const bool df, const __u16 mf,
+static inline __be16 build_v4_frag_offset(const bool df, const __u16 mf,
 		const __u16 frag_offset)
 {
-	__u16 result = (df ? (1U << 14) : 0)
-		     | (mf ? (1U << 13) : 0)
-		     | (frag_offset >> 3);
+	__u16 result = (df ? (1U << 14) : 0) |
+		       (mf ? (1U << 13) : 0) |
+		       (frag_offset >> 3);
 	return cpu_to_be16(result);
 }
 
-/**
+/*
  * Returns the size in bytes of @hdr, including options.
  * skbless variant of tcp_hdrlen().
  */
@@ -167,7 +167,7 @@ static inline unsigned int tcp_hdr_len(const struct tcphdr *hdr)
 	return hdr->doff << 2;
 }
 
-/**
+/*
  * We need to store packet metadata, so we encapsulate sk_buffs into this.
  *
  * Do **not** use control buffers (skb->cb) for this purpose. The kernel is
@@ -178,12 +178,12 @@ struct packet {
 
 	__u8 l3_proto;
 	__u8 l4_proto;
-	/** Is this a subpacket, contained in an ICMP error? */
+	/* Is this a subpacket, contained in an ICMP error? */
 	bool is_inner;
 
-	/** Offset of the skb's fragment header (from skb->data), if any. */
+	/* Offset of the skb's fragment header (from skb->data), if any. */
 	unsigned int frag_offset;
-	/**
+	/*
 	 * Offset of the packet's payload. (From skb->data.)
 	 * Because skbs only store pointers to headers.
 	 *
@@ -198,12 +198,12 @@ struct packet {
 	unsigned int payload_offset;
 };
 
-/**
+/*
  * Initializes @pkt using the rest of the arguments.
  */
 static inline void pkt_fill(struct packet *pkt, struct sk_buff *skb,
-		__u8 l3_proto, __u8 l4_proto, struct frag_hdr *frag,
-		void *payload)
+			    __u8 l3_proto, __u8 l4_proto, struct frag_hdr *frag,
+			    void *payload)
 {
 	pkt->skb = skb;
 	pkt->l3_proto = l3_proto;
@@ -282,7 +282,7 @@ static inline unsigned int skb_l3hdr_len(const struct sk_buff *skb)
 	return skb_transport_header(skb) - skb_network_header(skb);
 }
 
-/**
+/*
  * Returns the length of @pkt's first set of layer-3 headers (including options
  * and extension headers).
  * Counts neither frag_list headers, frag headers nor ICMP error inner headers.
@@ -297,7 +297,7 @@ static inline unsigned int pkt_l3hdr_len(const struct packet *pkt)
 	return skb_l3hdr_len(pkt->skb);
 }
 
-/**
+/*
  * Returns the length of @pkt's first set of layer-4 headers (including
  * options).
  * Counts neither frag headers nor ICMP error inner headers.
@@ -312,7 +312,7 @@ static inline unsigned int pkt_l4hdr_len(const struct packet *pkt)
 	return pkt_payload(pkt) - (void *)skb_transport_header(pkt->skb);
 }
 
-/**
+/*
  * Returns the length of @pkt's first set of layer-3 and layer-4 headers.
  * Counts neither frag_list headers, frag headers nor ICMP error inner headers.
  *
@@ -331,7 +331,7 @@ static inline unsigned int skb_datagram_len(const struct sk_buff *skb)
 	return skb->len - skb_l3hdr_len(skb);
 }
 
-/**
+/*
  * Returns the length of @pkt's layer-3 payload.
  * Includes headroom payload, frag_list payload and frags payload.
  *
@@ -349,19 +349,19 @@ static inline unsigned int pkt_datagram_len(const struct packet *pkt)
 
 static inline bool pkt_is_icmp6_error(const struct packet *pkt)
 {
-	return pkt->l4_proto == NEXTHDR_ICMP /* Implies "not subsequent" */
-			&& is_icmp6_error(pkt_icmp6_hdr(pkt)->icmp6_type);
+	return pkt->l4_proto == NEXTHDR_ICMP && /* Implies "not subsequent" */
+	       is_icmp6_error(pkt_icmp6_hdr(pkt)->icmp6_type);
 }
 
 static inline bool pkt_is_icmp4_error(const struct packet *pkt)
 {
-	return pkt->l4_proto == IPPROTO_ICMP /* Implies "not subsequent" */
-			&& is_icmp4_error(pkt_icmp4_hdr(pkt)->type);
+	return pkt->l4_proto == IPPROTO_ICMP && /* Implies "not subsequent" */
+	       is_icmp4_error(pkt_icmp4_hdr(pkt)->type);
 }
 
 struct xlation;
 
-/**
+/*
  * Ensures @skb isn't corrupted and initializes @state->in out of it.
  *
  * After this function, code can assume:
@@ -386,7 +386,7 @@ struct xlation;
  */
 int pkt_init_ipv6(struct xlation *state, struct sk_buff *skb);
 int pkt_init_ipv4(struct xlation *state, struct sk_buff *skb);
-/**
+/*
  * @}
  */
 

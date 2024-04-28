@@ -11,9 +11,9 @@
 #include "ipv6_hdr_iterator.h"
 #include "log.h"
 
-static __u8 xlat_tos(struct jool_globals const *config, struct ipv6hdr const *hdr)
+static __u8 xlat_tos(struct jool_globals const *cfg, struct ipv6hdr const *hdr)
 {
-	return config->reset_tos ? config->new_tos : get_traffic_class(hdr);
+	return cfg->reset_tos ? cfg->new_tos : get_traffic_class(hdr);
 }
 
 static __u8 nexthdr2proto(__u8 nexthdr)
@@ -21,7 +21,7 @@ static __u8 nexthdr2proto(__u8 nexthdr)
 	return (nexthdr == NEXTHDR_ICMP) ? IPPROTO_ICMP : nexthdr;
 }
 
-/**
+/*
  * One-liner for creating the IPv4 header's Protocol field.
  */
 static __u8 xlat_proto(struct ipv6hdr const *hdr6)
@@ -96,7 +96,7 @@ static int validate_size(struct xlation *state)
 		return 0;
 	case 1:
 		return drop_icmp(state, ICMPV6_PKT_TOOBIG, 0,
-				max(1280u, nexthop_mtu + 20u));
+				 max(1280u, nexthop_mtu + 20u));
 	case 2:
 		return drop(state);
 	}
@@ -182,20 +182,19 @@ int ttp64_alloc_skb(struct xlation *state)
 	return 0;
 }
 
-/**
+/*
  * One-liner for creating the IPv4 header's Identification field.
  *
  * Note, because of __ip_select_ident(), the following fields need to be already
  * set: hdr4->saddr, hdr4->daddr, hdr4->protocol.
  */
 static void generate_ipv4_id(struct xlation const *state, struct iphdr *hdr4,
-    struct frag_hdr const *hdr_frag)
+			     struct frag_hdr const *hdr_frag)
 {
-	if (hdr_frag) {
+	if (hdr_frag)
 		hdr4->id = cpu_to_be16(be32_to_cpu(hdr_frag->identification));
-	} else {
+	else
 		__ip_select_ident(state->ns, hdr4, 1);
-	}
 }
 
 static bool generate_df_flag(struct xlation const *state)
@@ -233,7 +232,7 @@ static bool generate_df_flag(struct xlation const *state)
 }
 
 static __be16 xlat_frag_off(struct frag_hdr const *hdr_frag,
-		struct xlation const *state)
+			    struct xlation const *state)
 {
 	bool df;
 	__u16 mf;
@@ -242,17 +241,17 @@ static __be16 xlat_frag_off(struct frag_hdr const *hdr_frag,
 	if (hdr_frag) {
 		df = 0;
 		mf = is_mf_set_ipv6(hdr_frag);
-		frag_offset = get_fragment_offset_ipv6(hdr_frag);
+		frag_offset = get_v6_frag_offset(hdr_frag);
 	} else {
 		df = generate_df_flag(state);
 		mf = 0;
 		frag_offset = 0;
 	}
 
-	return build_ipv4_frag_off_field(df, mf, frag_offset);
+	return build_v4_frag_offset(df, mf, frag_offset);
 }
 
-/**
+/*
  * has_nonzero_segments_left - Returns true if @hdr6's packet has a routing
  * header, and its Segments Left field is not zero.
  *
@@ -261,7 +260,7 @@ static __be16 xlat_frag_off(struct frag_hdr const *hdr_frag,
  *		stored here.
  */
 static bool has_nonzero_segments_left(struct ipv6hdr const *hdr6,
-		__u32 *location)
+				      __u32 *location)
 {
 	struct ipv6_rt_hdr const *rt_hdr;
 	unsigned int offset;
@@ -278,7 +277,7 @@ static bool has_nonzero_segments_left(struct ipv6hdr const *hdr6,
 	return true;
 }
 
-/**
+/*
  * Translates @state->in's IPv6 header into @state->out's IPv4 header.
  * Only used for external IPv6 headers. (ie. not enclosed in ICMP errors.)
  * RFC 7915 sections 5.1 and 5.1.1.
@@ -296,12 +295,12 @@ int ttp64_ipv4_external(struct xlation *state)
 	if (hdr6->hop_limit <= 1) {
 		log_debug("Packet's hop limit <= 1.");
 		return drop_icmp(state, ICMPV6_TIME_EXCEED, ICMPV6_EXC_HOPLIMIT,
-				0);
+				 0);
 	}
 	if (has_nonzero_segments_left(hdr6, &nonzero_location)) {
 		log_debug("Packet's segments left field is nonzero.");
 		return drop_icmp(state, ICMPV6_PARAMPROB, ICMPV6_HDR_FIELD,
-				nonzero_location);
+				 nonzero_location);
 	}
 
 	hdr4 = pkt_ip4_hdr(&state->out);
@@ -329,7 +328,7 @@ int ttp64_ipv4_external(struct xlation *state)
 	return 0;
 }
 
-/**
+/*
  * Same as ttp64_ipv4_external(), except only used on internal headers.
  */
 static int ttp64_ipv4_internal(struct xlation *state)
@@ -344,8 +343,9 @@ static int ttp64_ipv4_internal(struct xlation *state)
 	hdr4->version = 4;
 	hdr4->ihl = 5;
 	hdr4->tos = xlat_tos(state->cfg, hdr6);
-	hdr4->tot_len = cpu_to_be16(get_tot_len_ipv6(in->skb) - pkt_hdrs_len(in)
-			+ pkt_hdrs_len(out));
+	hdr4->tot_len = cpu_to_be16(get_tot_len_ipv6(in->skb) -
+				    pkt_hdrs_len(in) +
+				    pkt_hdrs_len(out));
 	hdr4->frag_off = xlat_frag_off(hdr_frag, state);
 	hdr4->ttl = hdr6->hop_limit;
 	hdr4->protocol = xlat_proto(hdr6);
@@ -362,7 +362,7 @@ static int ttp64_ipv4_internal(struct xlation *state)
 	return 0;
 }
 
-/**
+/*
  * One liner for creating the ICMPv4 header's MTU field.
  * Returns the smallest out of the three parameters.
  */
@@ -394,14 +394,13 @@ static int compute_mtu4(struct xlation const *state)
 	log_debug("Out dev MTU: %u", out_mtu);
 
 	out_icmp->un.frag.mtu = minimum(be32_to_cpu(in_icmp->icmp6_mtu) - 20,
-			out_mtu,
-			in_mtu - 20);
+					out_mtu, in_mtu - 20);
 	log_debug("Resulting MTU: %u", be16_to_cpu(out_icmp->un.frag.mtu));
 
 	return 0;
 }
 
-/**
+/*
  * One liner for translating the ICMPv6's pointer field to ICMPv4.
  * "Pointer" is a field from "Parameter Problem" ICMP messages.
  */
@@ -455,11 +454,11 @@ success:
 	return 0;
 failure:
 	log_debug("Parameter problem pointer '%u' lacks an ICMPv4 counterpart.",
-			icmp6_ptr);
+		  icmp6_ptr);
 	return drop(state);
 }
 
-/**
+/*
  * One-liner for translating "Parameter Problem" messages from ICMPv6 to ICMPv4.
  */
 static int icmp6_to_icmp4_param_prob(struct xlation *state)
@@ -477,8 +476,8 @@ static int icmp6_to_icmp4_param_prob(struct xlation *state)
 	}
 
 	/* Dead code */
-	WARN(1, "ICMPv6 Parameter Problem code %u was unhandled by the switch above.",
-			icmpv6_hdr->icmp6_type);
+	WARN(1, "Unhandled ICMPv6 Parameter Problem code %u.",
+	     icmpv6_hdr->icmp6_type);
 	return drop(state);
 }
 
@@ -498,7 +497,7 @@ static void update_icmp4_csum(struct xlation const *state)
 
 	/* Remove the ICMPv6 pseudo-header. */
 	tmp = ~csum_unfold(csum_ipv6_magic(&in_ip6->saddr, &in_ip6->daddr,
-			pkt_datagram_len(&state->in), NEXTHDR_ICMP, 0));
+			   pkt_datagram_len(&state->in), NEXTHDR_ICMP, 0));
 	csum = csum_sub(csum, tmp);
 
 	/*
@@ -533,8 +532,9 @@ static int validate_icmp6_csum(struct xlation *state)
 	hdr6 = pkt_ip6_hdr(in);
 	len = pkt_datagram_len(in);
 	csum = csum_ipv6_magic(&hdr6->saddr, &hdr6->daddr, len, NEXTHDR_ICMP,
-			skb_checksum(in->skb, skb_transport_offset(in->skb),
-					len, 0));
+			       skb_checksum(in->skb,
+					    skb_transport_offset(in->skb),
+					    len, 0));
 	if (csum != 0) {
 		log_debug("Checksum doesn't match.");
 		return drop(state);
@@ -652,7 +652,7 @@ static int echo(struct xlation *state, struct icmp6hdr const *icmp6,
 	return 0;
 }
 
-/**
+/*
  * Translates in's icmp6 header and payload into out's icmp4 header and payload.
  * This is the core of RFC 7915 sections 5.2 and 5.3, except checksum (See
  * post_icmp4*()).
@@ -737,8 +737,8 @@ fail:
 	 * ICMPV6_MGM_QUERY, ICMPV6_MGM_REPORT, ICMPV6_MGM_REDUCTION, Neighbor
 	 * Discover messages (133 - 137).
 	 */
-	log_debug("ICMPv6 messages type %u code %u lack an ICMPv4 counterpart.",
-			inhdr->icmp6_type, inhdr->icmp6_code);
+	log_debug("Untranslatable: ICMPv6 type %u code %u .",
+		  inhdr->icmp6_type, inhdr->icmp6_code);
 	return drop(state);
 }
 
@@ -753,8 +753,12 @@ static __wsum pseudohdr4_csum(struct iphdr const *hdr)
 }
 
 static __sum16 update_csum_6to4(__sum16 csum16,
-		struct ipv6hdr const *in_ip6, void const *in_l4_hdr, size_t in_l4_hdr_len,
-		struct iphdr const *out_ip4, void const *out_l4_hdr, size_t out_l4_hdr_len)
+				struct ipv6hdr const *in_ip6,
+				void const *in_l4_hdr,
+				size_t in_l4_hdr_len,
+				struct iphdr const *out_ip4,
+				void const *out_l4_hdr,
+				size_t out_l4_hdr_len)
 {
 	__wsum csum;
 
@@ -798,14 +802,16 @@ int ttp64_tcp(struct xlation *state)
 
 		tcp_out->check = 0;
 		tcp_out->check = update_csum_6to4(tcp_in->check,
-				pkt_ip6_hdr(in), &tcp_copy, sizeof(tcp_copy),
-				pkt_ip4_hdr(out), tcp_out, sizeof(*tcp_out));
+						  pkt_ip6_hdr(in), &tcp_copy,
+						  sizeof(tcp_copy),
+						  pkt_ip4_hdr(out),
+						  tcp_out, sizeof(*tcp_out));
 		out->skb->ip_summed = CHECKSUM_NONE;
 
 	} else {
 		tcp_out->check = ~tcp_v4_check(pkt_datagram_len(out),
-				pkt_ip4_hdr(out)->saddr,
-				pkt_ip4_hdr(out)->daddr, 0);
+					       pkt_ip4_hdr(out)->saddr,
+					       pkt_ip4_hdr(out)->daddr, 0);
 		partialize_skb(out->skb, offsetof(struct tcphdr, check));
 	}
 
@@ -830,16 +836,18 @@ int ttp64_udp(struct xlation *state)
 
 		udp_out->check = 0;
 		udp_out->check = update_csum_6to4(udp_in->check,
-				pkt_ip6_hdr(in), &udp_copy, sizeof(udp_copy),
-				pkt_ip4_hdr(out), udp_out, sizeof(*udp_out));
+						  pkt_ip6_hdr(in), &udp_copy,
+						  sizeof(udp_copy),
+						  pkt_ip4_hdr(out), udp_out,
+						  sizeof(*udp_out));
 		if (udp_out->check == 0)
 			udp_out->check = CSUM_MANGLED_0;
 		out->skb->ip_summed = CHECKSUM_NONE;
 
 	} else {
 		udp_out->check = ~udp_v4_check(pkt_datagram_len(out),
-				pkt_ip4_hdr(out)->saddr,
-				pkt_ip4_hdr(out)->daddr, 0);
+					       pkt_ip4_hdr(out)->saddr,
+					       pkt_ip4_hdr(out)->daddr, 0);
 		partialize_skb(out->skb, offsetof(struct udphdr, check));
 	}
 
@@ -851,10 +859,10 @@ xlat_icmperr_saddr(struct xlation *state, struct in6_addr *saddr)
 {
 	struct in6_addr *p = &state->cfg->pool6791v6;
 
-	if (p->s6_addr32[0] != 0
-	 || p->s6_addr32[1] != 0
-	 || p->s6_addr32[2] != 0
-	 || p->s6_addr32[3] != 0) {
+	if (p->s6_addr32[0] != 0 ||
+	    p->s6_addr32[1] != 0 ||
+	    p->s6_addr32[2] != 0 ||
+	    p->s6_addr32[3] != 0) {
 		*saddr = *p;
 		return 0;
 	}

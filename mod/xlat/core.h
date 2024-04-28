@@ -1,7 +1,7 @@
 #ifndef SRC_MOD_COMMON_RFC7915_CORE_H_
 #define SRC_MOD_COMMON_RFC7915_CORE_H_
 
-/**
+/*
  * @file
  * This is the face of the "Translating the Packet" code. Files outside of this
  * folder should only see the API exposed by this file.

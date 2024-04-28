@@ -48,7 +48,7 @@ static int truncated(struct xlation *state, const char *what)
 	return drop(state);
 }
 
-/**
+/*
  * This is relevant because we need to call pskb_may_pull(), which might
  * eventually call pskb_expand_head(), and that panics if the packet is shared.
  * Therefore, I think this validation (with messy WARN included) is fair.
@@ -82,8 +82,8 @@ static int fail_if_broken_offset(struct xlation *state)
 	struct sk_buff *skb = state->in.skb;
 
 	if (WARN(skb_network_offset(skb) != (skb_network_header(skb) - skb->data),
-			"The packet's network header offset is not relative to skb->data.\n"
-			"Translating this packet would break Jool, so dropping."))
+		 "The packet's network header offset is not relative to skb->data.\n"
+		 "Translating this packet would break Jool, so dropping."))
 		return drop(state);
 
 	return 0;
@@ -105,7 +105,7 @@ static int paranoid_validations(struct xlation *state, size_t min_hdr_size)
 	return 0;
 }
 
-/**
+/*
  * Walks through @skb's headers, collecting data and adding it to @meta.
  *
  * @hdr6_offset number of bytes between skb->data and the IPv6 header.
@@ -133,8 +133,8 @@ static int summarize_skb6(struct xlation *state, unsigned int hdr6_offset,
 	bool is_first = true;
 
 	ptr.nexthdr = skb_hdr_ptr(skb,
-			hdr6_offset + offsetof(struct ipv6hdr, nexthdr),
-			nexthdr);
+				  hdr6_offset + offsetof(struct ipv6hdr, nexthdr),
+				  nexthdr);
 	if (!ptr.nexthdr)
 		return truncated(state, "IPv6 header");
 	nexthdr = *ptr.nexthdr;
@@ -162,16 +162,16 @@ static int summarize_skb6(struct xlation *state, unsigned int hdr6_offset,
 			meta->l4_proto = NEXTHDR_UDP;
 			meta->l4_offset = offset;
 			meta->payload_offset = is_first
-					? (offset + sizeof(struct udphdr))
-					: offset;
+					     ? (offset + sizeof(struct udphdr))
+					     : offset;
 			return 0;
 
 		case NEXTHDR_ICMP:
 			meta->l4_proto = NEXTHDR_ICMP;
 			meta->l4_offset = offset;
 			meta->payload_offset = is_first
-					? (offset + sizeof(struct icmp6hdr))
-					: offset;
+					     ? (offset + sizeof(struct icmp6hdr))
+					     : offset;
 			return 0;
 
 		case NEXTHDR_FRAGMENT:
@@ -196,9 +196,9 @@ static int summarize_skb6(struct xlation *state, unsigned int hdr6_offset,
 		case NEXTHDR_DEST:
 			if (meta->fhdr_offset) {
 				log_debug("There's a known extension header (%u) after Fragment.",
-						nexthdr);
+					  nexthdr);
 				return drop_icmp(state, ICMPV6_DEST_UNREACH,
-						ICMPV6_ADM_PROHIBITED, 0);
+						 ICMPV6_ADM_PROHIBITED, 0);
 			}
 
 			ptr.opt = skb_hdr_ptr(skb, offset, buffer.opt);
@@ -221,7 +221,7 @@ static int summarize_skb6(struct xlation *state, unsigned int hdr6_offset,
 }
 
 static int validate_inner6(struct xlation *state,
-		struct pkt_metadata const *outer_meta)
+			   struct pkt_metadata const *outer_meta)
 {
 	union {
 		struct ipv6hdr ip6;
@@ -238,7 +238,7 @@ static int validate_inner6(struct xlation *state,
 	int error;
 
 	ptr.ip6 = skb_hdr_ptr(state->in.skb, outer_meta->payload_offset,
-			buffer.ip6);
+			      buffer.ip6);
 	if (!ptr.ip6)
 		return truncated(state, "inner IPv6 header");
 	if (unlikely(ptr.ip6->version != 6)) {
@@ -252,7 +252,7 @@ static int validate_inner6(struct xlation *state,
 
 	if (meta.fhdr_offset) {
 		ptr.frag = skb_hdr_ptr(state->in.skb, meta.fhdr_offset,
-				buffer.frag);
+				       buffer.frag);
 		if (!ptr.frag)
 			return truncated(state, "inner fragment header");
 		if (!is_first_frag6(ptr.frag)) {
@@ -263,7 +263,7 @@ static int validate_inner6(struct xlation *state,
 
 	if (meta.l4_proto == NEXTHDR_ICMP) {
 		ptr.icmp = skb_hdr_ptr(state->in.skb, meta.l4_offset,
-				buffer.icmp);
+				       buffer.icmp);
 		if (!ptr.icmp)
 			return truncated(state, "inner ICMPv6 header");
 		if (has_inner_pkt6(ptr.icmp->icmp6_type)) {
@@ -294,7 +294,7 @@ static int handle_icmp6(struct xlation *state, struct pkt_metadata const *meta)
 	/* See handle_icmp4() comment */
 	if (meta->fhdr_offset) {
 		ptr.frag = skb_hdr_ptr(state->in.skb, meta->fhdr_offset,
-				buffer.frag);
+				       buffer.frag);
 		if (!ptr.frag)
 			return truncated(state, "fragment header");
 		if (ip6_is_fragment(ptr.frag)) {
@@ -308,8 +308,8 @@ static int handle_icmp6(struct xlation *state, struct pkt_metadata const *meta)
 		return truncated(state, "ICMPv6 header");
 
 	return has_inner_pkt6(ptr.icmp->icmp6_type)
-			? validate_inner6(state, meta)
-			: 0;
+	     ? validate_inner6(state, meta)
+	     : 0;
 }
 
 int pkt_init_ipv6(struct xlation *state, struct sk_buff *skb)
@@ -445,9 +445,7 @@ static int handle_icmp4(struct xlation *state, struct pkt_metadata *meta)
 	if (!ptr)
 		return truncated(state, "ICMP header");
 
-	return has_inner_pkt4(ptr->type)
-			? validate_inner4(state, meta)
-			: 0;
+	return has_inner_pkt4(ptr->type) ? validate_inner4(state, meta) : 0;
 }
 
 static int summarize_skb4(struct xlation *state, struct pkt_metadata *meta)
@@ -510,8 +508,7 @@ int pkt_init_ipv4(struct xlation *state, struct sk_buff *skb)
 		return error;
 
 	log_debug("Packet: %pI4->%pI4",
-			&ip_hdr(skb)->saddr,
-			&ip_hdr(skb)->daddr);
+		  &ip_hdr(skb)->saddr, &ip_hdr(skb)->daddr);
 
 	error = summarize_skb4(state, &meta);
 	if (error)
@@ -532,7 +529,7 @@ int pkt_init_ipv4(struct xlation *state, struct sk_buff *skb)
 	return 0;
 }
 
-/**
+/*
  * skb_pull() is oddly special in that it can return NULL in a situation where
  * most skb functions would just panic. Which is actually great for skb_pull();
  * the kernel good practices thingy rightfully states that we should always
@@ -554,6 +551,6 @@ unsigned char *jskb_pull(struct sk_buff *skb, unsigned int len)
 {
 	unsigned char *result = skb_pull(skb, len);
 	WARN(!result, "Bug: We tried to pull %u bytes out of a %u-length skb.",
-			len, skb->len);
+	     len, skb->len);
 	return result;
 }
