@@ -19,8 +19,8 @@
 #include <linux/ioctl.h>
 #include <linux/version.h>
 
-#include "xlat/core.h"
 #include "xlat/log.h"
+#include "xlat/rfc7915.h"
 #include "xlat/translation_state.h"
 
 MODULE_AUTHOR("Alberto Leiva Popper");

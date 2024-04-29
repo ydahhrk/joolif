@@ -4,10 +4,7 @@ KERNEL_DIR ?= ${MODULES_DIR}/build
 obj-m += joolif.o
 
 joolif-objs += hook.o
-joolif-objs += xlat/4to6.o
-joolif-objs += xlat/6to4.o
-joolif-objs += xlat/common.o
-joolif-objs += xlat/core.o
+joolif-objs += xlat/rfc7915.o
 joolif-objs += xlat/address.o
 joolif-objs += xlat/ipv6_hdr_iterator.o
 joolif-objs += xlat/packet.o
