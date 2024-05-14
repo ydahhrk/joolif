@@ -59,13 +59,13 @@ static struct jool_globals cfg = {
 	.compute_udp_csum_zero = false,
 };
 
-int joolif_open(struct net_device *dev)
+static int joolif_open(struct net_device *dev)
 {
 	netif_start_queue(dev);
 	return 0;
 }
 
-int joolif_stop(struct net_device *dev)
+static int joolif_stop(struct net_device *dev)
 {
 	netif_stop_queue(dev);
 	return 0;
@@ -83,7 +83,7 @@ static void send_packet(struct sk_buff *skb, struct net_device *dev)
 	}
 }
 
-int joolif_start_xmit(struct sk_buff *in, struct net_device *dev)
+static int joolif_start_xmit(struct sk_buff *in, struct net_device *dev)
 {
 	struct xlation state;
 
