@@ -2784,7 +2784,7 @@ static void ttp64_icmp_err(struct xlation *state)
 	}
 
 	compute_icmp6_csum(out);
-	out->mark = skb->mark; /* IP6_REPLY_MARK(net, skb->mark); */
+	out->mark = IP6_REPLY_MARK(net, skb->mark);
 	out->protocol = htons(ETH_P_IPV6);
 
 	memset(&state->out, 0, sizeof(state->out));
