@@ -138,7 +138,8 @@ static int prefix6_validate(const struct ipv6_prefix *prefix)
 	return 0;
 }
 
-static int joolif_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+static int joolif_siocdevprivate(struct net_device *dev, struct ifreq *ifr,
+				 void __user *data, int cmd)
 {
 	union {
 		struct ipv6_prefix p6;
@@ -151,7 +152,7 @@ static int joolif_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
 	switch (cmd) {
 	case JCMD_POOL6:
-		error = copy_from_user(&buf.p6, ifr->ifr_data, sizeof(buf.p6));
+		error = copy_from_user(&buf.p6, data, sizeof(buf.p6));
 		if (error)
 			goto efault;
 		error = prefix6_validate(&buf.p6);
@@ -162,7 +163,7 @@ static int joolif_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		return 0;
 
 	case JCMD_POOL6791V6:
-		error = copy_from_user(&buf.a6, ifr->ifr_data, sizeof(buf.a6));
+		error = copy_from_user(&buf.a6, data, sizeof(buf.a6));
 		if (error)
 			goto efault;
 		cfg.pool6791v6 = buf.a6;
@@ -170,7 +171,7 @@ static int joolif_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		return 0;
 
 	case JCMD_POOL6791V4:
-		error = copy_from_user(&buf.a4, ifr->ifr_data, sizeof(buf.a4));
+		error = copy_from_user(&buf.a4, data, sizeof(buf.a4));
 		if (error)
 			goto efault;
 		cfg.pool6791v4 = buf.a4;
@@ -178,7 +179,7 @@ static int joolif_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		return 0;
 
 	case JCMD_LI6M:
-		error = copy_from_user(&buf.u32, ifr->ifr_data, sizeof(buf.u32));
+		error = copy_from_user(&buf.u32, data, sizeof(buf.u32));
 		if (error)
 			goto efault;
 		if (buf.u32 < 1280) {
@@ -191,7 +192,7 @@ static int joolif_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		return 0;
 
 	case JCMD_AUCZ:
-		error = copy_from_user(&buf.u8, ifr->ifr_data, sizeof(buf.u8));
+		error = copy_from_user(&buf.u8, data, sizeof(buf.u8));
 		if (error)
 			goto efault;
 		cfg.compute_udp_csum_zero = buf.u8;
@@ -212,7 +213,7 @@ static const struct net_device_ops joolif_netdev_ops = {
 	.ndo_open		= joolif_open,
 	.ndo_stop		= joolif_stop,
 	.ndo_start_xmit		= joolif_start_xmit,
-	.ndo_do_ioctl		= joolif_ioctl,
+	.ndo_siocdevprivate	= joolif_siocdevprivate,
 };
 
 /*
