@@ -1723,8 +1723,21 @@ partial:
 }
 
 /*
- * TODO Maaaaaaaaybe replace this with icmp_send().
- * I'm afraid of using such a high level function from here, tbh.
+ * I can't find a means to turn this into icmp_send(). It's hell-bent on routing
+ * the packet.
+ *
+ * ip_route_input() fails at ip_route_input_noref() -> ip_route_input_rcu() ->
+ * ip_route_input_slow() -> ip_mkroute_input() -> __mkroute_input() ->
+ * fib_validate_source(), presumably because the source address belongs to us.
+ * Using 0 as source address doesn't help.
+ *
+ * Allocating a custom struct rtable doesn't work either.
+ * With RTCF_LOCAL, it fails at icmp_route_lookup() -> ip_route_output_key() ->
+ * ip_route_output_flow() -> __ip_route_output_key() ->
+ * ip_route_output_key_hash() -> ip_route_output_key_hash_rcu() ->
+ * __ip_dev_find().
+ * Without RTCF_LOCAL, it fails at icmp_route_lookup() ->
+ * xfrm_decode_session_reverse().
  */
 static void ttp46_icmp_err(struct xlation *state)
 {
@@ -2661,134 +2674,16 @@ xlat_icmperr_saddr(struct xlation *state, struct in6_addr *saddr)
 			    saddr);
 }
 
-/*
- * TODO Maaaaaaaaybe replace this with icmp6_send().
- * I'm afraid of using such a high level function from here, tbh.
- */
 static void ttp64_icmp_err(struct xlation *state)
 {
-	struct sk_buff *skb, *out;
-	struct ipv6hdr *hdr;
-	struct ipv6hdr *iph;
-	struct net *net;
-	struct icmp6hdr *ich;
-	int addr_type = 0;
-	int len;
-	__u8 type;
-	__u8 code;
-	bool allow;
+	struct in6_addr saddr;
+	struct inet6_skb_parm parm = { 0 };
 
-	log_debug("Sending ICMPv6 error.");
-
-	net = state->ns;
-	skb = state->in.skb;
-	hdr = ipv6_hdr(skb);
-	type = state->result.type;
-	code = state->result.code;
-	/*
-	 *	Make sure we respect the rules
-	 *	i.e. RFC 1885 2.4(e)
-	 *	Rule (e.1) is enforced by not using icmp6_send
-	 *	in any code that processes icmp errors.
-	 */
-
-//	if (ipv6_chk_addr(net, &hdr->daddr, skb->dev, 0) ||
-//	    ipv6_chk_acast_addr_src(net, skb->dev, &hdr->daddr))
-//		saddr = &hdr->daddr;
-
-	/*
-	 *	Dest addr check
-	 */
-
-	addr_type = ipv6_addr_type(&hdr->daddr);
-	if ((addr_type & IPV6_ADDR_MULTICAST) || skb->pkt_type != PACKET_HOST) {
-		if (type != ICMPV6_PKT_TOOBIG &&
-		    !(type == ICMPV6_PARAMPROB &&
-		      code == ICMPV6_UNK_OPTION /* &&
-		      (opt_unrec(skb, info)) */ ))
-			return;
-	}
-
-
-	/*
-	 *	Must not send error if the source does not uniquely
-	 *	identify a single node (RFC2463 Section 2.4).
-	 *	We check unspecified / multicast addresses here,
-	 *	and anycast addresses will be checked later.
-	 */
-	addr_type = ipv6_addr_type(&hdr->saddr);
-	if ((addr_type == IPV6_ADDR_ANY) || (addr_type & IPV6_ADDR_MULTICAST)) {
-		net_dbg_ratelimited("icmp6_send: addr_any/mcast source [%pI6c > %pI6c]\n",
-				    &hdr->saddr, &hdr->daddr);
-		return;
-	}
-
-	/*
-	 *	Never answer to a ICMP packet.
-	 */
-//	if (is_ineligible(skb)) {
-//		net_dbg_ratelimited("icmp6_send: no reply to icmp error [%pI6c > %pI6c]\n",
-//				    &hdr->saddr, &hdr->daddr);
-//		return;
-//	}
-
-	/* Needed by both icmp_global_allow and icmpv6_xmit_lock */
-	local_bh_disable();
-
-	/* Check global sysctl_icmp_msgs_per_sec ratelimit */
-//	if (!icmpv6_global_allow(net, type))
-//		goto out_bh_enable;
-	allow = icmp_global_allow();
-	local_bh_enable();
-	if (!allow)
+	if (xlat_icmperr_saddr(state, &saddr) != 0)
 		return;
 
-	len = sizeof(*iph) + sizeof(*ich) + skb->len;
-	if (len > 1280u)
-		len = 1280u;
-
-	out = netdev_alloc_skb(state->dev, LL_MAX_HEADER + len);
-	if (!out)
-		return;
-
-	skb_reserve(out, LL_MAX_HEADER);
-	skb_put(out, len);
-	skb_reset_mac_header(out);
-	skb_reset_network_header(out);
-	skb_set_transport_header(out, sizeof(struct ipv6hdr));
-
-	iph = ipv6_hdr(out);
-	iph->version = 6;
-	iph->priority = 0;
-	iph->flow_lbl[0] = 0;
-	iph->flow_lbl[1] = 0;
-	iph->flow_lbl[2] = 0;
-	iph->payload_len = htons(len - sizeof(*iph));
-	iph->nexthdr = NEXTHDR_ICMP;
-	iph->hop_limit = 64; /* FIXME Probably change to 255 */
-	if (xlat_icmperr_saddr(state, &iph->saddr) != 0) {
-		dev_kfree_skb(out);
-		return;
-	}
-	iph->daddr = hdr->saddr;
-
-	ich = icmp6_hdr(out);
-	ich->icmp6_type = state->result.type;
-	ich->icmp6_code = state->result.code;
-	/* checksum later */
-	ich->icmp6_unused = htonl(state->result.info);
-
-	if (skb_copy_bits(skb, 0, ich + 1, len - sizeof(*iph) - sizeof(*ich))) {
-		dev_kfree_skb(out);
-		return;
-	}
-
-	compute_icmp6_csum(out);
-	out->mark = IP6_REPLY_MARK(net, skb->mark);
-	out->protocol = htons(ETH_P_IPV6);
-
-	memset(&state->out, 0, sizeof(state->out));
-	state->out.skb = out;
+	icmp6_send(state->in.skb, state->result.type, state->result.code,
+		   htonl(state->result.info), &saddr, &parm);
 }
 
 static const struct translation_steps steps64 = {
