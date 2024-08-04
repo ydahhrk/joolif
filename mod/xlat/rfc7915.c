@@ -353,6 +353,8 @@ static int fix_ie(struct xlation *state, size_t in_ie_offset, size_t ipl,
 			goto copy_fail;
 	}
 
+	skb_new->protocol = skb_old->protocol;
+	skb_new->mark = skb_old->mark;
 	skb_dst_set(skb_new, dst_clone(skb_dst(skb_old)));
 	kfree_skb(skb_old);
 	state->out.skb = skb_new;

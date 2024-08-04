@@ -29,6 +29,6 @@ sudo sysctl -w net.ipv6.auto_flowlabels=0 > /dev/null
 #	ping 192.0.2.33
 #
 # End:
-	(Optional) sudo ip link del siit0
+#	(Optional) sudo ip link del siit0
 #	sudo rmmod joolif
 
