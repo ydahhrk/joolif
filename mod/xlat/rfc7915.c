@@ -12,7 +12,7 @@
 #include <net/tcp.h>
 #include <net/addrconf.h>
 
-#include "aux.h"
+#include "icmp.h"
 #include "log.h"
 #include "address.h"
 #include "ipv6_hdr_iterator.h"
@@ -1267,7 +1267,7 @@ static int icmp4_to_icmp6_param_prob(struct xlation *state)
 	__u8 ptr;
 
 	switch (icmp4_hdr->code) {
-	case ICMP_PTR_INDICATES_ERROR:
+	case ICMP_PTR_INDICATES_ERR:
 	case ICMP_BAD_LENGTH:
 		ptr = be32_to_cpu(icmp4_hdr->icmp4_unused) >> 24;
 
@@ -1362,7 +1362,7 @@ static int handle_icmp6_extension(struct xlation *state)
 	int error;
 
 	args.max_pkt_len = 1280;
-	args.ipl = icmp4_length(pkt_icmp4_hdr(&state->in)) << 2;
+	args.ipl = pkt_icmp4_hdr(&state->in)->icmp4_datagram_length << 2;
 	args.out_bits = 3;
 	args.force_remove_ie = should_remove_ie(state);
 
@@ -1371,7 +1371,7 @@ static int handle_icmp6_extension(struct xlation *state)
 		return error;
 
 	out = &state->out;
-	pkt_icmp6_hdr(out)->icmp6_length = args.ipl;
+	pkt_icmp6_hdr(out)->icmp6_datagram_len = args.ipl;
 	pkt_ip6_hdr(out)->payload_len = cpu_to_be16(out->skb->len -
 						    sizeof(struct ipv6hdr));
 	return 0;
@@ -1528,7 +1528,7 @@ static int ttp46_icmp(struct xlation *state)
 	case ICMP_PARAMETERPROB:
 		outhdr->icmp6_type = ICMPV6_PARAMPROB;
 		switch (inhdr->code) {
-		case ICMP_PTR_INDICATES_ERROR:
+		case ICMP_PTR_INDICATES_ERR:
 		case ICMP_BAD_LENGTH:
 			outhdr->icmp6_code = ICMPV6_HDR_FIELD;
 			break;
@@ -2368,7 +2368,7 @@ static int handle_icmp4_extension(struct xlation *state)
 	int error;
 
 	args.max_pkt_len = 576;
-	args.ipl = pkt_icmp6_hdr(&state->in)->icmp6_length << 3;
+	args.ipl = pkt_icmp6_hdr(&state->in)->icmp6_datagram_len << 3;
 	args.out_bits = 2;
 	args.force_remove_ie = false;
 
@@ -2377,7 +2377,7 @@ static int handle_icmp4_extension(struct xlation *state)
 		return error;
 
 	out = &state->out;
-	icmp4_length(pkt_icmp4_hdr(out)) = args.ipl;
+	pkt_icmp4_hdr(out)->icmp4_datagram_length = args.ipl;
 	update_total_length(out);
 	return 0;
 }

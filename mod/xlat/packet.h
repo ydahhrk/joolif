@@ -61,15 +61,6 @@ static inline __u8 get_traffic_class(const struct ipv6hdr *hdr)
 	return (upper_bits << 4) | lower_bits;
 }
 
-/*
- * Returns a big endian (but otherwise hack-free) version of the 'Flow label'
- * field from @hdr.
- */
-static inline __be32 get_flow_label(const struct ipv6hdr *hdr)
-{
-	return (*(__be32 *) hdr) & IPV6_FLOWLABEL_MASK;
-}
-
 /* Returns IP_DF if the DF flag from @hdr is set, 0 otherwise. */
 static inline __u16 is_df_set(const struct iphdr *hdr)
 {
@@ -225,11 +216,6 @@ static inline struct ipv6hdr *pkt_ip6_hdr(const struct packet *pkt)
 	return ipv6_hdr(pkt->skb);
 }
 
-static inline __u8 pkt_l4_proto(const struct packet *pkt)
-{
-	return pkt->l4_proto;
-}
-
 /* Incompatible with subsequent fragments, l4_proto must be TCP. */
 static inline struct udphdr *pkt_udp_hdr(const struct packet *pkt)
 {
@@ -350,13 +336,13 @@ static inline unsigned int pkt_datagram_len(const struct packet *pkt)
 static inline bool pkt_is_icmp6_error(const struct packet *pkt)
 {
 	return pkt->l4_proto == NEXTHDR_ICMP && /* Implies "not subsequent" */
-	       is_icmp6_error(pkt_icmp6_hdr(pkt)->icmp6_type);
+	       icmpv6_is_err(pkt_icmp6_hdr(pkt)->icmp6_type);
 }
 
 static inline bool pkt_is_icmp4_error(const struct packet *pkt)
 {
 	return pkt->l4_proto == IPPROTO_ICMP && /* Implies "not subsequent" */
-	       is_icmp4_error(pkt_icmp4_hdr(pkt)->type);
+	       icmp_is_err(pkt_icmp4_hdr(pkt)->type);
 }
 
 struct xlation;

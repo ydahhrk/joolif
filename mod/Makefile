@@ -9,7 +9,6 @@ joolif-objs += xlat/address.o
 joolif-objs += xlat/ipv6_hdr_iterator.o
 joolif-objs += xlat/packet.o
 joolif-objs += xlat/translation_state.o
-joolif-objs += xlat/types.o
 
 all:
 	make -C ${KERNEL_DIR} M=$$PWD

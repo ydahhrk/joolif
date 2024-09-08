@@ -28,13 +28,6 @@ struct ipv6_prefix {
 };
 
 /*
- * Returns true if @type (which is assumed to have been extracted from a ICMP
- * header) represents a packet which is an error response.
- */
-bool is_icmp6_error(__u8 type);
-bool is_icmp4_error(__u8 type);
-
-/*
  * A copy of the entire running configuration, excluding databases.
  */
 struct jool_globals {

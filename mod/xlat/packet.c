@@ -33,12 +33,12 @@ struct pkt_metadata {
 
 static bool has_inner_pkt4(__u8 icmp_type)
 {
-	return is_icmp4_error(icmp_type);
+	return icmp_is_err(icmp_type);
 }
 
 static bool has_inner_pkt6(__u8 icmp6_type)
 {
-	return is_icmp6_error(icmp6_type);
+	return icmpv6_is_err(icmp6_type);
 }
 
 /* It seems that this should never trigger ICMP errors. */
