@@ -113,10 +113,10 @@ int rfc6052_4to6(struct ipv6_prefix const *prefix, __be32 src,
 int siit64_addrs(struct xlation *state, __be32 *src, __be32 *dst)
 {
 	struct ipv6_prefix *pool6 = &state->cfg->pool6;
-	struct ipv6hdr *hdr6 = pkt_ip6_hdr(&state->in);
+	struct ipv6hdr *hdr6 = ipv6_hdr(state->in);
 
 	if (rfc6052_6to4(pool6, &hdr6->saddr, src) != 0) {
-		if (!pkt_is_icmp6_error(&state->in))
+		if (!pkt_is_icmp6_error(state->in))
 			return drop(state);
 		*src = state->cfg->pool6791v4.s_addr;
 	}
@@ -132,7 +132,7 @@ int siit46_addrs(struct xlation *state, struct in6_addr *src,
 		 struct in6_addr *dst)
 {
 	struct ipv6_prefix *pool6 = &state->cfg->pool6;
-	struct iphdr *hdr4 = pkt_ip4_hdr(&state->in);
+	struct iphdr *hdr4 = ip_hdr(state->in);
 
 	if (rfc6052_4to6(pool6, hdr4->saddr, src) != 0)
 		return drop(state);

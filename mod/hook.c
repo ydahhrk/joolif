@@ -79,6 +79,7 @@ static void send_packet(struct sk_buff *skb, struct net_device *dev)
 		next = skb->next;
 		skb->next = NULL;
 		skb->dev = dev;
+		memset(skb->cb, 0, sizeof(skb->cb));
 		netif_rx(skb);
 	}
 }
@@ -87,7 +88,7 @@ static int joolif_start_xmit(struct sk_buff *in, struct net_device *dev)
 {
 	struct xlation state;
 
-	pr_info("Received a packet.\n");
+	log_debug("Received a packet.");
 
 	skb_pull(in, ETH_HLEN); /* TODO check len >= ETH_HLEN first? */
 
@@ -99,8 +100,8 @@ static int joolif_start_xmit(struct sk_buff *in, struct net_device *dev)
 	jool_xlat(&state, in);
 	dev_kfree_skb(in);
 
-	if (state.out.skb)
-		send_packet(state.out.skb, dev);
+	if (state.out)
+		send_packet(state.out, dev);
 
 	return 0;
 }
@@ -374,8 +375,8 @@ static int siit_newlink(struct net *src_net, struct net_device *dev,
  * Inherited from veth. Not actually needed; if dellink is NULL,
  * __rtnl_link_register() automatically sets it as unregister_netdevice_queue().
  *
- * If you don't add anything, probably delete this function on pr_info() purge
- * day.
+ * TODO If you don't add anything, probably delete this function on pr_info()
+ * purge day.
  */
 static void siit_dellink(struct net_device *dev, struct list_head *head)
 {

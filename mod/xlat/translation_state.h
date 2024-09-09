@@ -22,9 +22,9 @@ struct xlation {
 	struct jool_globals *cfg;
 
 	/* The original packet. */
-	struct packet in;
+	struct sk_buff *in;
 	/* The translated version of @in. */
-	struct packet out;
+	struct sk_buff *out;
 
 	struct xlation_result result;
 };

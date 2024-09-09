@@ -55,7 +55,7 @@ static int truncated(struct xlation *state, const char *what)
  */
 static int fail_if_shared(struct xlation *state)
 {
-	if (WARN(skb_shared(state->in.skb), "The packet is shared!"))
+	if (WARN(skb_shared(state->in), "The packet is shared!"))
 		return drop(state);
 
 	/*
@@ -79,7 +79,7 @@ static int fail_if_shared(struct xlation *state)
  */
 static int fail_if_broken_offset(struct xlation *state)
 {
-	struct sk_buff *skb = state->in.skb;
+	struct sk_buff *skb = state->in;
 
 	if (WARN(skb_network_offset(skb) != (skb_network_header(skb) - skb->data),
 		 "The packet's network header offset is not relative to skb->data.\n"
@@ -99,7 +99,7 @@ static int paranoid_validations(struct xlation *state, size_t min_hdr_size)
 	error = fail_if_broken_offset(state);
 	if (error)
 		return error;
-	if (!pskb_may_pull(state->in.skb, min_hdr_size))
+	if (!pskb_may_pull(state->in, min_hdr_size))
 		return truncated(state, "basic IP header");
 
 	return 0;
@@ -127,7 +127,7 @@ static int summarize_skb6(struct xlation *state, unsigned int hdr6_offset,
 		u8 *nexthdr;
 	} ptr;
 
-	struct sk_buff *skb = state->in.skb;
+	struct sk_buff *skb = state->in;
 	u8 nexthdr;
 	unsigned int offset;
 	bool is_first = true;
@@ -237,8 +237,7 @@ static int validate_inner6(struct xlation *state,
 	struct pkt_metadata meta;
 	int error;
 
-	ptr.ip6 = skb_hdr_ptr(state->in.skb, outer_meta->payload_offset,
-			      buffer.ip6);
+	ptr.ip6 = skb_hdr_ptr(state->in, outer_meta->payload_offset, buffer.ip6);
 	if (!ptr.ip6)
 		return truncated(state, "inner IPv6 header");
 	if (unlikely(ptr.ip6->version != 6)) {
@@ -251,7 +250,7 @@ static int validate_inner6(struct xlation *state,
 		return error;
 
 	if (meta.fhdr_offset) {
-		ptr.frag = skb_hdr_ptr(state->in.skb, meta.fhdr_offset,
+		ptr.frag = skb_hdr_ptr(state->in, meta.fhdr_offset,
 				       buffer.frag);
 		if (!ptr.frag)
 			return truncated(state, "inner fragment header");
@@ -262,7 +261,7 @@ static int validate_inner6(struct xlation *state,
 	}
 
 	if (meta.l4_proto == NEXTHDR_ICMP) {
-		ptr.icmp = skb_hdr_ptr(state->in.skb, meta.l4_offset,
+		ptr.icmp = skb_hdr_ptr(state->in, meta.l4_offset,
 				       buffer.icmp);
 		if (!ptr.icmp)
 			return truncated(state, "inner ICMPv6 header");
@@ -272,7 +271,7 @@ static int validate_inner6(struct xlation *state,
 		}
 	}
 
-	if (!pskb_may_pull(state->in.skb, meta.payload_offset)) {
+	if (!pskb_may_pull(state->in, meta.payload_offset)) {
 		log_debug("Could not 'pull' the headers out of the skb.");
 		return truncated(state, "inner headers");
 	}
@@ -293,7 +292,7 @@ static int handle_icmp6(struct xlation *state, struct pkt_metadata const *meta)
 
 	/* See handle_icmp4() comment */
 	if (meta->fhdr_offset) {
-		ptr.frag = skb_hdr_ptr(state->in.skb, meta->fhdr_offset,
+		ptr.frag = skb_hdr_ptr(state->in, meta->fhdr_offset,
 				       buffer.frag);
 		if (!ptr.frag)
 			return truncated(state, "fragment header");
@@ -303,7 +302,7 @@ static int handle_icmp6(struct xlation *state, struct pkt_metadata const *meta)
 		}
 	}
 
-	ptr.icmp = skb_hdr_ptr(state->in.skb, meta->l4_offset, buffer.icmp);
+	ptr.icmp = skb_hdr_ptr(state->in, meta->l4_offset, buffer.icmp);
 	if (!ptr.icmp)
 		return truncated(state, "ICMPv6 header");
 
@@ -315,9 +314,11 @@ static int handle_icmp6(struct xlation *state, struct pkt_metadata const *meta)
 int pkt_init_ipv6(struct xlation *state, struct sk_buff *skb)
 {
 	struct pkt_metadata meta;
+	struct jool_cb *cb;
 	int error;
 
-	state->in.skb = skb;
+	state->in = skb;
+	memset(skb->cb, 0, sizeof(skb->cb));
 
 	/*
 	 * DO NOT, UNDER ANY CIRCUMSTANCES, EXTRACT ANY BYTES FROM THE SKB'S
@@ -355,12 +356,13 @@ int pkt_init_ipv6(struct xlation *state, struct sk_buff *skb)
 	if (!pskb_may_pull(skb, meta.payload_offset))
 		return truncated(state, "headers");
 
-	state->in.l3_proto = PF_INET6;
-	state->in.l4_proto = meta.l4_proto;
-	state->in.is_inner = 0;
-	state->in.frag_offset = meta.fhdr_offset;
+	cb = JOOL_CB(skb);
+	cb->l3_proto = PF_INET6;
+	cb->l4_proto = meta.l4_proto;
+	cb->is_inner = 0;
+	cb->frag_offset = meta.fhdr_offset;
 	skb_set_transport_header(skb, meta.l4_offset);
-	state->in.payload_offset = meta.payload_offset;
+	cb->payload_offset = meta.payload_offset;
 
 	return 0;
 }
@@ -378,7 +380,7 @@ static int validate_inner4(struct xlation *state, struct pkt_metadata *meta)
 	unsigned int ihl;
 	unsigned int offset = meta->payload_offset;
 
-	ptr.ip4 = skb_hdr_ptr(state->in.skb, offset, buffer.ip4);
+	ptr.ip4 = skb_hdr_ptr(state->in, offset, buffer.ip4);
 	if (!ptr.ip4)
 		return truncated(state, "inner IPv4 header");
 
@@ -404,7 +406,7 @@ static int validate_inner4(struct xlation *state, struct pkt_metadata *meta)
 
 	switch (ptr.ip4->protocol) {
 	case IPPROTO_TCP:
-		ptr.tcp = skb_hdr_ptr(state->in.skb, offset, buffer.tcp);
+		ptr.tcp = skb_hdr_ptr(state->in, offset, buffer.tcp);
 		if (!ptr.tcp)
 			return truncated(state, "inner TCP header");
 		offset += tcp_hdr_len(ptr.tcp);
@@ -417,7 +419,7 @@ static int validate_inner4(struct xlation *state, struct pkt_metadata *meta)
 		break;
 	}
 
-	if (!pskb_may_pull(state->in.skb, offset))
+	if (!pskb_may_pull(state->in, offset))
 		return truncated(state, "inner headers");
 
 	return 0;
@@ -436,12 +438,12 @@ static int handle_icmp4(struct xlation *state, struct pkt_metadata *meta)
 	 *
 	 * In short: Don't ever allow fragmented ICMP.
 	 */
-	if (ip_is_fragment(pkt_ip4_hdr(&state->in))) {
+	if (ip_is_fragment(ip_hdr(state->in))) {
 		log_debug("Packet is fragmented and ICMP; ICMP checksum cannot be translated.");
 		return drop(state);
 	}
 
-	ptr = skb_hdr_ptr(state->in.skb, meta->l4_offset, buffer);
+	ptr = skb_hdr_ptr(state->in, meta->l4_offset, buffer);
 	if (!ptr)
 		return truncated(state, "ICMP header");
 
@@ -450,11 +452,11 @@ static int handle_icmp4(struct xlation *state, struct pkt_metadata *meta)
 
 static int summarize_skb4(struct xlation *state, struct pkt_metadata *meta)
 {
-	struct iphdr *hdr4 = ip_hdr(state->in.skb);
+	struct iphdr *hdr4 = ip_hdr(state->in);
 	unsigned int offset;
 
-	hdr4 = ip_hdr(state->in.skb);
-	offset = skb_network_offset(state->in.skb) + (hdr4->ihl << 2);
+	hdr4 = ip_hdr(state->in);
+	offset = skb_network_offset(state->in) + (hdr4->ihl << 2);
 
 	meta->fhdr_offset = 0;
 	meta->l4_offset = offset;
@@ -465,7 +467,7 @@ static int summarize_skb4(struct xlation *state, struct pkt_metadata *meta)
 	case IPPROTO_TCP:
 		if (is_first_frag4(hdr4)) {
 			struct tcphdr buffer, *ptr;
-			ptr = skb_hdr_ptr(state->in.skb, offset, buffer);
+			ptr = skb_hdr_ptr(state->in, offset, buffer);
 			if (!ptr)
 				return truncated(state, "TCP header");
 			meta->payload_offset += tcp_hdr_len(ptr);
@@ -489,9 +491,11 @@ static int summarize_skb4(struct xlation *state, struct pkt_metadata *meta)
 int pkt_init_ipv4(struct xlation *state, struct sk_buff *skb)
 {
 	struct pkt_metadata meta;
+	struct jool_cb *cb;
 	int error;
 
-	state->in.skb = skb;
+	state->in = skb;
+	memset(skb->cb, 0, sizeof(skb->cb));
 
 	/*
 	 * DO NOT, UNDER ANY CIRCUMSTANCES, EXTRACT ANY BYTES FROM THE SKB'S
@@ -519,12 +523,13 @@ int pkt_init_ipv4(struct xlation *state, struct sk_buff *skb)
 		return truncated(state, "headers");
 	}
 
-	state->in.l3_proto = PF_INET;
-	state->in.l4_proto = meta.l4_proto;
-	state->in.is_inner = false;
-	state->in.frag_offset = 0;
+	cb = JOOL_CB(skb);
+	cb->l3_proto = PF_INET;
+	cb->l4_proto = meta.l4_proto;
+	cb->is_inner = false;
+	cb->frag_offset = 0;
 	skb_set_transport_header(skb, meta.l4_offset);
-	state->in.payload_offset = meta.payload_offset;
+	cb->payload_offset = meta.payload_offset;
 
 	return 0;
 }
