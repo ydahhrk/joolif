@@ -1,5 +1,7 @@
 # joolif
 
+**This repository is obsolete; the project is being moved to [Codeberg](https://codeberg.org/IPv6-Monostack/joolif-net-next).**
+
 WIP. Inspired by https://gist.github.com/danderson/664bf95f372acf106982bcc29ff56b53.
 
 See [`start.sh`](start.sh).
